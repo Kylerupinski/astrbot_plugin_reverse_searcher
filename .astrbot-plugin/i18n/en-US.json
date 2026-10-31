@@ -4,6 +4,18 @@
     "desc": "Reverse image search across five engines — AnimeTrace, E-Hentai, Google Lens, Yandex, and SauceNAO. Results are rendered as polished card images, and an LLM tool for image search is provided."
   },
   "config": {
+    "output_mode": {
+      "description": "Search result output format",
+      "hint": "card: render results as an image card (default, with thumbnails and similarity badges); text: plain-text output, one message per result with that result's image attached"
+    },
+    "text_merge": {
+      "description": "Merge text-mode results into a chat record",
+      "hint": "When enabled, text mode merges the summary and every result into a single forwarded chat record. Only platforms that support merged forwarding (QQ / aiocqhttp / OneBot) are affected; other platforms, or when disabled, send messages one by one"
+    },
+    "result_image_size": {
+      "description": "Result image resolution",
+      "hint": "Resolution of the image attached to each result in text mode: low (use the engine thumbnail directly, least traffic) / standard (downscale the engine's full-size image to 640 px on the longest side, default) / original (keep the full-size image, downscaling only oversized images as a safety net)"
+    },
     "enable_keyword_trigger": {
       "description": "Enable keyword-triggered search",
       "hint": "When disabled, users can still search images via the LLM tool, but keywords such as '以图搜图' no longer trigger a search"

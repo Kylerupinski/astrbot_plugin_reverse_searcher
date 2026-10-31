@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin
 
 from typing_extensions import override
 
@@ -88,5 +89,22 @@ class EHentai(BaseSearchReq[EHentaiResponse]):
             endpoint=endpoint,
             data=data,
             files=files,
+            # 不让 HTTP 客户端自动跟随上传跳转：E-Hentai 的风控会拒绝
+            # “客户端自动跟随”的那一次跳转（实测固定返回 403），
+            # 手动 GET Location 才能拿到真实结果页。
+            follow_redirects=False,
         )
-        return EHentaiResponse(resp.text, resp.url)
+
+        if resp.status_code in (301, 302, 303, 307, 308):
+            location = (resp.headers or {}).get("Location") or (resp.headers or {}).get(
+                "location"
+            )
+            if location:
+                target = urljoin(resp.url, location)
+                resp = await self.get(
+                    target, headers={"Referer": "https://e-hentai.org/"}
+                )
+
+        # 把 HTTP 状态码一并交给解析器：限流/封禁时常返回 200 + 纯文本提示，
+        # 状态码与响应体一起判断才能给出可读的失败原因
+        return EHentaiResponse(resp.text, resp.url, status_code=resp.status_code)

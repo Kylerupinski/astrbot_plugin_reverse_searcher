@@ -206,6 +206,30 @@ class SauceNAOResponse(BaseSearchResponse[SauceNAOItem]):
         self.results_returned: int | None = header.get("results_returned")
         self.url: str = f"https://saucenao.com/search.php?url=https://saucenao.com{header.get('query_image_display')}"
 
+    def item_entries(self) -> list[dict]:
+        """按结果拆分文本（文本模式逐条发送，可带缩略图）"""
+        entries: list[dict] = []
+        for idx, item in enumerate(self.raw[:5], 1):
+            lines = [
+                f"结果 #{idx}",
+                f"相似度: {item.similarity}%",
+                f"标题: {item.title}",
+                f"作者: {item.author}",
+                f"作品链接: {item.url}",
+            ]
+            if item.ext_urls:
+                lines.append("更多相关链接:")
+                lines.extend(f"  #{j} {url}" for j, url in enumerate(item.ext_urls, 1))
+            entries.append(
+                {
+                    "text": "\n".join(lines),
+                    "thumbnail": item.thumbnail,
+                    "full_image": "",
+                    "crop_box": None,
+                }
+            )
+        return entries
+
     def show_result(self) -> str | None:
         """
         生成可读的搜索结果文本

@@ -87,3 +87,56 @@ class BaseSearchResponse(ABC, Generic[T]):
         异常:
             NotImplementedError: 子类必须实现此方法
         """
+
+    # ── 分条输出（文本模式下逐条发送：一条结果 = 文本 + 图片）──────
+
+    @staticmethod
+    def _format_similarity(sim: Any) -> str:
+        """把相似度格式化为 ``92.5%``；无法格式化时原样返回"""
+        if isinstance(sim, (int, float)):
+            return f"{sim:.1f}%" if sim > 0 else ""
+        return str(sim).strip() if sim else ""
+
+    def item_entries(self) -> list[dict]:
+        """按结果条目拆分文本与图片线索（供文本模式逐条发送）
+
+        返回:
+            list[dict]: 每项含
+                - ``text``: 该条结果的文本
+                - ``thumbnail``: 缩略图 URL（可为空）
+                - ``crop_box``: 需要从源图裁剪的检测框（AnimeTrace 用，可为 None）
+
+        默认按通用字段（来源/标题/作者/相似度/链接）排版，
+        各引擎可覆盖以保留自身字段（如 E-Hentai 标签、AnimeTrace 角色）。
+        """
+        entries: list[dict] = []
+        for idx, item in enumerate(self.raw[:5], 1):
+            title = getattr(item, "title", "") or ""
+            author = getattr(item, "author", "") or ""
+            source = (
+                getattr(item, "source", "") or getattr(item, "index_name", "") or ""
+            )
+            url = getattr(item, "url", "") or ""
+            similarity = self._format_similarity(getattr(item, "similarity", 0))
+
+            lines = [f"结果 #{idx}"]
+            if source:
+                lines.append(f"来源: {source}")
+            if title:
+                lines.append(f"标题: {title}")
+            if author and author != source:
+                lines.append(f"作者: {author}")
+            if similarity:
+                lines.append(f"相似度: {similarity}")
+            if url:
+                lines.append(f"链接: {url}")
+            entries.append(
+                {
+                    "text": "\n".join(lines),
+                    "thumbnail": getattr(item, "thumbnail", "") or "",
+                    # 原始大图（支持该字段的引擎才有），供「原图」档位使用
+                    "full_image": getattr(item, "full_image", "") or "",
+                    "crop_box": None,
+                }
+            )
+        return entries

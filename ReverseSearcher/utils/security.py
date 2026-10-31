@@ -89,6 +89,21 @@ def _resolve_host_ips(host: str) -> list[str] | None:
     return ips
 
 
+# Clash / Mihomo 等代理的 TUN 模式默认用 198.18.0.0/15 作为 fake-ip 段：
+# 所有域名都被解析成该段内的假地址，真实解析与建连都由代理侧完成。
+# 该段是 RFC 2544 基准测试保留地址，内网不会部署真实服务，因此对“域名解析
+# 结果”放行；URL 里直接写 IP 字面量时仍按内网规则拒绝（保留 SSRF 防护）。
+_FAKE_IP_NETWORK = ipaddress.ip_network("198.18.0.0/15")
+
+
+def _is_fake_ip(ip: str) -> bool:
+    """判断 IP 是否属于代理常用的 fake-ip 保留段"""
+    try:
+        return ipaddress.ip_address(ip) in _FAKE_IP_NETWORK
+    except ValueError:
+        return False
+
+
 def is_safe_image_url(url: str) -> bool:
     """校验图片 URL 是否安全（http/https + 公网主机）
 
@@ -137,7 +152,7 @@ def is_safe_image_url(url: str) -> bool:
         logger.debug(f"[security] 域名解析失败，保守拒绝: {host}")
         return False
     for ip in ips:
-        if is_private_ip(ip):
+        if is_private_ip(ip) and not _is_fake_ip(ip):
             logger.debug(f"[security] 域名解析到内网，拒绝: {host} -> {ip}")
             return False
     return True

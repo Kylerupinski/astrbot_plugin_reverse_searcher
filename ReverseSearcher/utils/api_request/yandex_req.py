@@ -67,4 +67,6 @@ class Yandex(BaseSearchReq[YandexResponse]):
             method="get", params=params, headers=headers, timeout=30
         )
 
-        return YandexResponse(resp.text, resp.url, **kwargs)
+        return YandexResponse(
+            resp.text, resp.url, status_code=resp.status_code, **kwargs
+        )

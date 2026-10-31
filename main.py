@@ -11,7 +11,7 @@ import httpx
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import Image as AstrImage
-from astrbot.api.message_components import Reply
+from astrbot.api.message_components import Plain, Reply
 from astrbot.api.star import Context, Star
 from PIL import Image
 
@@ -19,6 +19,10 @@ from .ReverseSearcher.engine_intro_pil import create_engine_intro_image
 from .ReverseSearcher.engine_registry import ALL_ENGINES, ENGINE_REGISTRY
 from .ReverseSearcher.message_extract import get_img_urls, get_message_text
 from .ReverseSearcher.model import BaseSearchModel
+from .ReverseSearcher.utils.forward import (
+    build_forward_nodes,
+    supports_merge_forward,
+)
 from .ReverseSearcher.utils.security import (
     is_safe_image_url,
     is_safe_local_image_path,
@@ -115,7 +119,14 @@ class ReverseSearcherPlugin(Star):
             allow_third_party_image_host=config.get(
                 "allow_third_party_image_host", True
             ),
+            # 结果配图档位：low（超低清）/ standard（标清）/ original（原图）
+            result_image_size=config.get("result_image_size", "standard"),
         )
+        # 输出方式：card（渲染结果卡片图片，默认）/ text（纯文本，不使用卡片设计）
+        output_mode = str(config.get("output_mode", "card") or "card").strip().lower()
+        self.output_mode = output_mode if output_mode in ("card", "text") else "card"
+        # text 模式下把逐条结果合并为一条合并转发（聊天记录，仅 QQ 等支持的平台生效）
+        self.text_merge = bool(config.get("text_merge", True))
         self.state_handlers = {
             "waiting_engine": self._handle_waiting,
             "waiting_both": self._handle_waiting,
@@ -313,6 +324,39 @@ class ReverseSearcherPlugin(Star):
             if os.path.exists(temp_file_path):
                 os.unlink(temp_file_path)
 
+    async def _send_text_message(
+        self, event: AstrMessageEvent, text: str, image: bytes | None = None
+    ):
+        """发送一条文本结果（纯文本模式）
+
+        带配图时发送「图片 + 文本」链，否则只发文本。配图先落临时文件，
+        发送完成后删除（与 _send_image 相同的生命周期处理）。
+
+        参数:
+            event: 事件对象
+            text: 该条结果的文本
+            image: 该条结果的配图（JPEG 字节），可为 None
+
+        返回:
+            yield消息发送结果
+
+        异常:
+            无（临时文件清理在 finally 中）
+        """
+        if not image:
+            yield event.plain_result(text)
+            return
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+            temp_file.write(image)
+            temp_file_path = temp_file.name
+        try:
+            yield event.chain_result(
+                [AstrImage.fromFileSystem(temp_file_path), Plain(text)]
+            )
+        finally:
+            if os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
+
     async def _send_engine_intro(self, event: AstrMessageEvent):
         """
         绘制并发送引擎表格介绍图片（HTML 模板优先，云端 t2i 不可达时降级 PIL）
@@ -378,21 +422,42 @@ class ReverseSearcherPlugin(Star):
         self, event: AstrMessageEvent, engine: str, img_buffer: io.BytesIO
     ):
         """
-        调用模型执行图片反向搜索（含异常提示图渲染）
+        调用模型执行图片反向搜索（按配置输出卡片图片或纯文本）
         参数:
             event: 消息事件对象
             engine: 引擎名称
             img_buffer: 图片二进制流
 
         返回:
-            yield图片/提示
+            yield图片/文本结果
 
         异常:
-            出错时生成错误提示图片
+            出错时生成错误提示图片/文本
         """
 
         # 压缩源图：大图上传搜索 API 慢（用户反馈），统一缩到最长边 1500px 转 JPEG
         file_bytes = await self._prepare_image_bytes(img_buffer)
+
+        # 纯文本输出模式：优先把全部结果合并成一条「聊天记录」发送；
+        # 平台不支持（非 QQ/OneBot）或构建失败时退回逐条发送（文本 + 配图）
+        if self.output_mode == "text":
+            messages = await self.search_model.search_text_messages(
+                api=engine, file=file_bytes
+            )
+            if self.text_merge and len(messages) > 1 and supports_merge_forward(event):
+                nodes = await build_forward_nodes(event, messages)
+                if nodes is not None:
+                    yield event.chain_result([nodes])
+                    return
+            for index, message in enumerate(messages):
+                if index:
+                    # 分条发送间隔，降低平台频率限制/风控风险
+                    await asyncio.sleep(0.5)
+                async for result in self._send_text_message(
+                    event, message.get("text", ""), message.get("image")
+                ):
+                    yield result
+            return
 
         # search_and_draw 内部已处理异常 → 返回错误图片
         result_img = await self.search_model.search_and_draw(

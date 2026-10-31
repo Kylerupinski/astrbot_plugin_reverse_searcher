@@ -17,6 +17,23 @@ class SearchAPIError(Exception):
     """
 
 
+def _parse_json_body(resp: Any, provider: str) -> dict:
+    """解析 JSON 响应体；非 JSON（网关 HTML 错误页等）给出可读错误
+
+    旧实现直接 resp.json()，遇到 HTML 错误页会抛 JSONDecodeError，
+    最终只看到一句没有上下文的解析异常。
+    """
+    try:
+        data = resp.json()
+    except Exception as exc:
+        snippet = (getattr(resp, "text", "") or "").strip().replace("\n", " ")[:200]
+        raise SearchAPIError(
+            f"{provider} 返回的不是 JSON（HTTP {getattr(resp, 'status_code', '?')}）："
+            f"{snippet or exc}"
+        ) from exc
+    return data
+
+
 class GoogleLensSerpApi(BaseSearchReq[GoogleLensResponse]):
     """SerpApi 实现：通过 Google Lens 引擎搜索图片。
 
@@ -63,16 +80,17 @@ class GoogleLensSerpApi(BaseSearchReq[GoogleLensResponse]):
             url = await self._upload_image(file)
             params["url"] = url
 
-        data = await self._fetch_serpapi(params)
+        data, status_code = await self._fetch_serpapi(params)
 
         return GoogleLensResponse(
             resp_data=json.dumps(data),
             resp_url=f"https://serpapi.com/search?engine={self.engine}",
+            status_code=status_code,
             **kwargs,
         )
 
-    async def _fetch_serpapi(self, params: dict) -> dict:
-        """调用 SerpApi 搜索接口并返回 JSON 结果"""
+    async def _fetch_serpapi(self, params: dict) -> tuple[dict, int]:
+        """调用 SerpApi 搜索接口并返回 (JSON 结果, HTTP 状态码)"""
         resp = await self._client.get("https://serpapi.com/search", params=params)
         if 400 <= resp.status_code < 500:
             raise SearchAPIError(
@@ -80,7 +98,7 @@ class GoogleLensSerpApi(BaseSearchReq[GoogleLensResponse]):
                 f"{resp.text[:200]}。请检查 api_key 是否有效或额度是否用完"
             )
         resp.raise_for_status()
-        return resp.json()
+        return _parse_json_body(resp, "SerpApi"), resp.status_code
 
 
 class GoogleLensZenserp(BaseSearchReq[GoogleLensResponse]):
@@ -121,16 +139,17 @@ class GoogleLensZenserp(BaseSearchReq[GoogleLensResponse]):
             url = await self._upload_image(file)
             params["image_url"] = url
 
-        data = await self._fetch_zenserp(headers, params)
+        data, status_code = await self._fetch_zenserp(headers, params)
 
         return GoogleLensResponse(
             resp_data=json.dumps(data),
             resp_url="https://app.zenserp.com/api/v2/search",
+            status_code=status_code,
             **kwargs,
         )
 
-    async def _fetch_zenserp(self, headers: dict, params: dict) -> dict:
-        """调用 Zenserp 搜索接口并返回 JSON 结果"""
+    async def _fetch_zenserp(self, headers: dict, params: dict) -> tuple[dict, int]:
+        """调用 Zenserp 搜索接口并返回 (JSON 结果, HTTP 状态码)"""
         resp = await self._client.get(
             "https://app.zenserp.com/api/v2/search", headers=headers, params=params
         )
@@ -140,7 +159,7 @@ class GoogleLensZenserp(BaseSearchReq[GoogleLensResponse]):
                 f"{resp.text[:200]}。请检查 zenserp_key 是否有效或额度是否用完"
             )
         resp.raise_for_status()
-        return resp.json()
+        return _parse_json_body(resp, "Zenserp"), resp.status_code
 
 
 class GoogleLens(BaseSearchReq[GoogleLensResponse]):

@@ -1,4 +1,31 @@
 {
+    "output_mode": {
+        "description": "搜索结果输出方式",
+        "type": "string",
+        "options": [
+            "card",
+            "text"
+        ],
+        "hint": "card：渲染为结果卡片图片（默认，带缩略图/相似度徽章）；text：纯文本输出，按结果逐条发送（每条附带该结果的图片），不使用卡片设计",
+        "default": "card"
+    },
+    "text_merge": {
+        "description": "文本模式合并为聊天记录",
+        "type": "bool",
+        "hint": "开启后 text 模式会把「汇总 + 每条结果」合并成一条合并转发（聊天记录）。仅 QQ（aiocqhttp/OneBot）等支持合并转发的平台生效，其他平台或关闭时逐条发送",
+        "default": true
+    },
+    "result_image_size": {
+        "description": "结果配图分辨率",
+        "type": "string",
+        "options": [
+            "low",
+            "standard",
+            "original"
+        ],
+        "hint": "text 模式每条结果附带图片的分辨率：low 超低清（直接用引擎缩略图，最省流量）/ standard 标清（原始大图缩放到最长边 640，默认）/ original 原图（原始大图不缩放，仅对超大图做兜底缩放）",
+        "default": "standard"
+    },
     "enable_keyword_trigger": {
         "description": "启用关键词触发搜索",
         "type": "bool",

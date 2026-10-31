@@ -70,6 +70,9 @@ class AnimeTrace(BaseSearchReq[AnimeTraceResponse]):
         if self.ai_detect is not None:
             params["ai_detect"] = 1 if self.ai_detect else 0
         if model:
+            # 现行 API 的字段名是 model；response_parser 是早期兼容字段，
+            # 同时发送（服务端会忽略未知字段），避免旧部署不识别 model。
+            params["model"] = model
             params["response_parser"] = model
         if url:
             data = {"url": url, **params}

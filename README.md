@@ -114,6 +114,9 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
 
 | 配置项 | 类型 | 默认 | 说明 |
 |--------|------|------|------|
+| `output_mode` | string | `card` | 结果输出方式：`card` 渲染为卡片图片（带缩略图/相似度徽章）；`text` 纯文本输出，**按结果逐条发送**（每条附带该结果的图片，不使用卡片设计） |
+| `text_merge` | bool | `true` | `text` 模式下把「汇总 + 每条结果」合并为一条**合并转发（聊天记录）**；仅 QQ（aiocqhttp/OneBot）等支持的平台生效，其他平台或关闭时逐条发送 |
+| `result_image_size` | string | `standard` | `text` 模式每条结果配图的分辨率：`low` 超低清（直接用引擎缩略图，最省流量）/ `standard` 标清（原始大图缩放到最长边 640）/ `original` 原图（原始大图不缩放） |
 | `enable_keyword_trigger` | bool | `true` | 关键词触发开关；关闭后仅 LLM 工具可用 |
 | `proxies` | string | `""` | 代理地址，如 `http://127.0.0.1:7890`（国内访问必填） |
 | `allow_third_party_image_host` | bool | `true` | 是否允许把本地图上传到第三方临时图床（Google/Yandex 本地图搜需要；关闭后这两引擎不可用本地图搜） |
@@ -151,12 +154,15 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
 | `yandex.max_results` / `use_ru_fallback` | 结果数 / `.ru` 域名回退 |
 | `yandex.cookies` | **Yandex Cookie**（反爬严格，不填可能 CAPTCHA 无结果，获取方法见 Q5） |
 
-> **隐私披露：本地图会上传第三方图床**——使用**本地图片**搜 **Google / Yandex** 时，插件需把图片先上传到临时图床（`tmpfiles.org` / `uguu.se` / `litterbox.catbox.moe` / `tmp.ninja`）再以 URL 形式搜索。**这意味着你的图片会被上传到公网临时图床**，保留时长由第三方决定。若需关闭，将 `allow_third_party_image_host` 设为 `false`（此时这两引擎不可用本地图搜，需改用图片 URL 或换用其他引擎）。
+> **隐私披露：本地图会上传第三方图床**——使用**本地图片**搜 **Google / Yandex** 时，插件需把图片先上传到临时图床（按顺序尝试 `uguu.se` / `x0.at` / `pomf.lain.la` / `litterbox.catbox.moe` / `tmpfiles.org`）再以 URL 形式搜索，并回读校验该直链确实返回图片。**这意味着你的图片会被上传到公网临时图床**，保留时长由第三方决定。若需关闭，将 `allow_third_party_image_host` 设为 `false`（此时这两引擎不可用本地图搜，需改用图片 URL 或换用其他引擎）。
 
 ### 快速配置模板
 
 ```json
 {
+  "output_mode": "card",
+  "text_merge": true,
+  "result_image_size": "standard",
   "enable_keyword_trigger": true,
   "proxies": "",
   "allow_third_party_image_host": true,

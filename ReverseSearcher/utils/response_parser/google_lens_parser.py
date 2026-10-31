@@ -32,12 +32,15 @@ class GoogleLensItem(BaseResParser):
         thumbnail: str = "",
         source: str = "",
         group: str = "visual",
+        full_image: str = "",
     ):
         super().__init__(None)
         self.title = title
         self.url = url
         self.thumbnail = thumbnail
         self.source = source
+        # 原始大图（SerpApi 的 image 字段），「原图」档位使用
+        self.full_image = full_image
         self.group = (
             group  # 'ai', 'exact', 'visual' (SerpApi) or 'pages', 'organic' (Zenserp)
         )
@@ -55,6 +58,8 @@ class GoogleLensResponse(BaseSearchResponse[GoogleLensItem]):
     def _parse_response(self, resp_data: str, **kwargs: Any) -> None:
         self.ai_overview = ""
         self.raw: list[GoogleLensItem] = []
+        # 空结果原因（SerpApi 业务错误 / 非 JSON 响应），供卡片与文本输出提示
+        self.error: str = ""
         try:
             data = json.loads(resp_data)
         except json.JSONDecodeError:
@@ -69,6 +74,11 @@ class GoogleLensResponse(BaseSearchResponse[GoogleLensItem]):
                 f"解析失败，响应类型: {type(data).__name__}（未切换备引擎）"
             )
             return
+
+        # SerpApi 在“未能识别/图片抓取不到”时以 200 + {"error": ...} 返回，
+        # 旧实现忽略该字段 → 卡片只剩“0 条匹配”，看不出真实原因。
+        if error_message := data.get("error"):
+            self.error = f"SerpApi 返回错误：{error_message}"
 
         # Auto-detect engine based on JSON structure
         if (
@@ -97,8 +107,27 @@ class GoogleLensResponse(BaseSearchResponse[GoogleLensItem]):
             elif isinstance(ai_data, dict):
                 # Check for actual content, skip if only token/link (which means "Searching...")
                 text_content = ai_data.get("text") or ai_data.get("snippet")
+                if not text_content:
+                    # 新版可能放在 text_blocks 里
+                    text_content = " ".join(
+                        str(block.get("snippet") or block.get("text") or "").strip()
+                        for block in (ai_data.get("text_blocks") or [])
+                        if isinstance(block, dict)
+                    ).strip()
                 if text_content:
                     self.ai_overview = text_content
+            elif isinstance(ai_data, list):
+                # 少见的列表形态：拼接其中的文本块
+                parts = []
+                for block in ai_data:
+                    if isinstance(block, dict):
+                        text = block.get("text") or block.get("snippet") or ""
+                    else:
+                        text = str(block or "")
+                    text = str(text).strip()
+                    if text:
+                        parts.append(text)
+                self.ai_overview = " ".join(parts)
 
         # 2. Exact Matches
         if "exact_matches" in data:
@@ -224,6 +253,7 @@ class GoogleLensResponse(BaseSearchResponse[GoogleLensItem]):
             thumbnail=_get("thumbnail"),
             source=_get("source"),
             group=group,
+            full_image=_get("image"),
         )
         self.raw.append(item)
 
@@ -269,11 +299,41 @@ class GoogleLensResponse(BaseSearchResponse[GoogleLensItem]):
             thumbnail=_s(match.get("thumbnail")),
             source=source,
             group=group,
+            full_image=_s(match.get("image")),
         )
         self.raw.append(item)
 
+    def item_entries(self) -> list[dict]:
+        """按结果拆分文本（文本模式逐条发送，可带缩略图）"""
+        entries: list[dict] = []
+        for idx, item in enumerate(self.raw[:5], 1):
+            group_label = (
+                "精确匹配"
+                if item.group in ("exact", "pages")
+                else ("AI 摘要" if item.group == "ai" else "相似结果")
+            )
+            lines = [f"结果 #{idx}（{group_label}）"]
+            if item.source:
+                lines.append(f"来源: {item.source}")
+            if item.title:
+                lines.append(f"标题: {item.title}")
+            if item.url:
+                lines.append(f"链接: {item.url}")
+            entries.append(
+                {
+                    "text": "\n".join(lines),
+                    "thumbnail": item.thumbnail,
+                    "full_image": item.full_image,
+                    "crop_box": None,
+                }
+            )
+        return entries
+
     def show_result(self) -> str | None:
         if not self.raw and not self.ai_overview:
+            # 有明确业务错误时优先展示（否则用户只看到“0 条结果”）
+            if getattr(self, "error", ""):
+                return self.error
             # Return debug info if available
             return (
                 getattr(self, "debug_info", "Google Lens: 未找到结果且无调试信息")

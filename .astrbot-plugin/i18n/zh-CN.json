@@ -4,6 +4,18 @@
     "desc": "支持 AnimeTrace、E-Hentai、Google Lens、Yandex、SauceNAO 五大引擎的图片反向搜索，搜索结果自动渲染为精美卡片图片，同时提供 LLM 主动搜图工具"
   },
   "config": {
+    "output_mode": {
+      "description": "搜索结果输出方式",
+      "hint": "card：渲染为结果卡片图片（默认，带缩略图/相似度徽章）；text：纯文本输出，按结果逐条发送（每条附带该结果的图片），不使用卡片设计"
+    },
+    "text_merge": {
+      "description": "文本模式合并为聊天记录",
+      "hint": "开启后 text 模式会把「汇总 + 每条结果」合并成一条合并转发（聊天记录）。仅 QQ（aiocqhttp/OneBot）等支持合并转发的平台生效，其他平台或关闭时逐条发送"
+    },
+    "result_image_size": {
+      "description": "结果配图分辨率",
+      "hint": "text 模式每条结果附带图片的分辨率：low 超低清（直接用引擎缩略图，最省流量）/ standard 标清（原始大图缩放到最长边 640，默认）/ original 原图（原始大图不缩放，仅对超大图做兜底缩放）"
+    },
     "enable_keyword_trigger": {
       "description": "启用关键词触发搜索",
       "hint": "关闭后用户仍可通过 LLM 工具搜图，但不再响应「以图搜图」等关键词"
