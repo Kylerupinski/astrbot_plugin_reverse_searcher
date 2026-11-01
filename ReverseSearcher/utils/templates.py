@@ -119,6 +119,10 @@ RESULT_CARD_TMPL = """<!DOCTYPE html>
   }
   .ai-badge.warn { background: #f59e0b; }
   .ai-badge.ok { background: #22c55e; }
+  .ai-badge.neutral { background: #6b7280; }
+  .ai-badge + .ai-badge { margin-left: 8px; }
+  /* 多枚徽章时允许换行，避免长文案溢出 */
+  .ai-badge { max-width: 100%; word-break: break-word; }
 
   /* 源图区 */
   .source-row {
@@ -209,9 +213,9 @@ RESULT_CARD_TMPL = """<!DOCTYPE html>
     <div class="header-sub">{{ count }} 条匹配 · 图片反向搜索</div>
   </div>
 
-  {% if ai_detect is not none %}
-  <div class="ai-badge {{ 'warn' if ai_detect else 'ok' }}">{{ '⚠ AI 生成嫌疑' if ai_detect else '✓ 非 AI 生成' }}</div>
-  {% endif %}
+  {% for badge in ai_badges %}
+  <div class="ai-badge {{ badge.tone }}">{{ badge.label }}</div>
+  {% endfor %}
 
   {% if source_image_b64 %}
   <div class="source-row">
@@ -269,12 +273,119 @@ ERROR_TMPL = """<!DOCTYPE html>
   }
   .title { font-size: 20px; font-weight: 800; }
   .msg { margin-top: 10px; font-size: 14px; opacity: .9; word-break: break-all; }
+  .badges { margin-top: 12px; }
+  .ai-badge {
+    display: inline-block;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    margin: 0 6px 6px 0;
+    max-width: 100%;
+    word-break: break-word;
+  }
+  .ai-badge.warn { background: #f59e0b; }
+  .ai-badge.ok { background: #22c55e; }
+  .ai-badge.neutral { background: #6b7280; }
 </style>
 </head>
 <body>
   <div class="card">
     <div class="title">「{{ engine_label }}」搜索失败</div>
     <div class="msg">{{ error_msg }}</div>
+    {% if ai_badges %}
+    <div class="badges">
+      {% for badge in ai_badges %}
+      <span class="ai-badge {{ badge.tone }}">{{ badge.label }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</body>
+</html>
+"""
+
+# AI 生成检测结果卡片（"AI 检测"引擎使用，不做反向搜索）
+AI_RESULT_TMPL = """<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f2f4f8;
+    margin: 0;
+    padding: 18px;
+    width: 620px;
+  }
+  .card {
+    background: #fff;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 4px 14px rgba(43, 63, 103, .14);
+  }
+  .header {
+    background: linear-gradient(135deg, {{ engine_color }} 0%, #2b3f67 100%);
+    color: #fff;
+    padding: 20px 24px;
+  }
+  .header-title { font-size: 21px; font-weight: 800; }
+  .header-sub { font-size: 13px; opacity: .88; margin-top: 4px; }
+  .verdict {
+    font-size: 30px;
+    font-weight: 800;
+    color: {{ verdict_color }};
+    margin: 20px 24px 4px;
+  }
+  .prob { margin: 0 24px; color: #4b5563; font-size: 15px; }
+  .bar {
+    height: 12px;
+    border-radius: 6px;
+    background: #e5e7eb;
+    margin: 10px 24px 0;
+    overflow: hidden;
+  }
+  .bar-fill { display: block; height: 100%; background: {{ verdict_color }}; }
+  .meta { margin: 10px 24px 0; color: #6b7280; font-size: 13px; }
+  .error {
+    margin: 18px 24px 4px;
+    padding: 12px 14px;
+    background: #fef2f2;
+    color: #b91c1c;
+    border-radius: 8px;
+    font-size: 14px;
+    word-break: break-all;
+  }
+  .source { padding: 18px 24px 22px; }
+  .source img {
+    max-width: 200px;
+    max-height: 200px;
+    border-radius: 10px;
+    background: #eef2f7;
+  }
+  .foot { padding: 0 24px 18px; color: #9ca3af; font-size: 12px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="header-title">「{{ engine_label }}」AI 生成检测</div>
+      <div class="header-sub">图片未做反向搜索 · 检测由 AI or Not 提供</div>
+    </div>
+    {% if error %}
+    <div class="error">{{ error }}</div>
+    {% else %}
+    <div class="verdict">{{ verdict_text }}</div>
+    <div class="prob">AI 生成概率：{{ probability_text }}</div>
+    <div class="bar"><span class="bar-fill" style="width: {{ probability_pct }}%"></span></div>
+    {% if generator %}<div class="meta">疑似生成器：{{ generator }}</div>{% endif %}
+    {% endif %}
+    {% if source_image_b64 %}
+    <div class="source"><img src="{{ source_image_b64 }}"></div>
+    {% endif %}
+    <div class="foot">仅供参考，检测结果不保证 100% 准确</div>
   </div>
 </body>
 </html>

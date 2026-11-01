@@ -10,6 +10,7 @@ from astrbot.api import logger
 
 from .engine_registry import ENGINE_REGISTRY, inject_request_classes
 from .utils import Network
+from .utils.aiornot import AIorNotDetector, AIDetectionResult
 from .utils.render_card import ResultCardRenderer
 from .utils.security import is_safe_image_ref, is_safe_image_url
 from .utils.types import FileContent
@@ -52,6 +53,8 @@ class BaseSearchModel:
         default_params: dict | None = None,
         allow_third_party_image_host: bool = True,
         result_image_size: str = "standard",
+        aiornot_api_key: str = "",
+        aiornot_timeout: float = 20,
     ):
         """
         初始化搜索模型
@@ -63,6 +66,8 @@ class BaseSearchModel:
             default_params: 各引擎的默认参数（含 yandex/ehentai 的 cookies）
             allow_third_party_image_host: 是否允许把本地图上传到第三方临时图床（Google/Yandex 本地图搜需要）
             result_image_size: 结果配图档位（low/standard/original）
+            aiornot_api_key: AI or Not 的 API Key（留空表示不启用 AI 检测）
+            aiornot_timeout: AI or Not 检测超时（秒）
         """
         self.proxies = proxies
         self.cookies = cookies
@@ -73,6 +78,7 @@ class BaseSearchModel:
         self.result_image_size = (
             size if size in self.IMAGE_SIZE_PROFILES else "standard"
         )
+        self.ai_detector = AIorNotDetector(aiornot_api_key, timeout=aiornot_timeout)
 
     def _prepare_engine_params(self, api: str, search_params: dict) -> dict:
         """从搜索参数中提取引擎专属配置。
@@ -204,6 +210,15 @@ class BaseSearchModel:
         异常:
             ValueError: 当API不支持或参数错误时抛出
         """
+        if api == "ai":
+            # 纯 AI 生成检测：不做反向搜索
+            image = file
+            if kwargs.get("base64"):
+                image = base64.b64decode(kwargs["base64"])
+            if url and not await asyncio.to_thread(is_safe_image_ref, url):
+                raise ValueError("图片地址不安全：仅支持公网图片 URL 或消息内图片")
+            detection = await self.detect_ai(file=image, url=url, require_enabled=True)
+            return detection.text_block()
         if api not in ENGINE_MAP:
             available = ", ".join(ENGINE_MAP.keys())
             raise ValueError(f"不支持的引擎: {api}，支持的引擎: {available}")
@@ -301,7 +316,7 @@ class BaseSearchModel:
         执行搜索并将结果渲染为图像
 
         参数:
-            api: 搜索引擎API名称
+            api: 搜索引擎API名称（"ai" 表示只做 AI 生成检测）
             file: 本地文件内容
             url: 图像URL
             **kwargs: 其他搜索参数
@@ -309,6 +324,25 @@ class BaseSearchModel:
         返回:
             Image.Image: 渲染后的结果图像
         """
+        # AI 检测引擎：不做反向搜索，只检测图片是否为 AI 生成
+        if api == "ai":
+            detection = await self.detect_ai(file=file, url=url, require_enabled=True)
+            source_image = None
+            try:
+                source_image = await self._load_source_image(
+                    file, url, self._network_kwargs()
+                )
+            except Exception as exc:
+                logger.debug(f"[ReverseSearcher] AI 检测源图加载失败: {exc}")
+            return await self.draw_ai_result(api, detection, source_image)
+
+        # 未知引擎先拦下，避免白跑一次 AI 检测
+        if api not in ENGINE_MAP:
+            return await self.draw_error(api, f"不支持的引擎: {api}")
+
+        # 其余引擎：先过一遍 AI 生成检测（未启用时为空），再执行反向搜索
+        ai_badges = await self._precheck_ai(file=file, url=url)
+
         try:
             response = await self._search_engine(api=api, file=file, url=url, **kwargs)
             raw_items = getattr(response, "raw", []) or []
@@ -326,7 +360,7 @@ class BaseSearchModel:
             if not items:
                 error = (getattr(response, "error", "") or "").strip()
                 if error:
-                    return await self.draw_error(api, error)
+                    return await self.draw_error(api, error, ai_badges=ai_badges)
 
             # 下载缩略图
             async def download_all_thumbs():
@@ -355,17 +389,106 @@ class BaseSearchModel:
                 ):
                     items[i]["thumbnail_image"] = thumb
 
-            # AnimeTrace: 提取 AI 检测结果
-            ai_detect = getattr(response, "ai", None)
+            # AnimeTrace 自带的 AI 检测与 AI or Not 结果一起展示
+            ai_badges = [*ai_badges, *self._animetrace_badges(response)]
             return await self.draw_results(
-                api, items, source_image, ai_detect=ai_detect
+                api, items, source_image, ai_badges=ai_badges
             )
         except Exception as e:
             # 错误卡片透出具体原因（渲染层已有转义）；
             # 先脱敏，防止 httpx 异常把含 api_key 的请求 URL 画进卡片
             detail = self._sanitize_error(e)
             logger.warning(f"[ReverseSearcher] {api} 搜索失败: {type(e).__name__}: {e}")
-            return await self.draw_error(api, detail[:200] or "搜索失败")
+            return await self.draw_error(
+                api, detail[:200] or "搜索失败", ai_badges=ai_badges
+            )
+
+    # ── AI 生成检测（AI or Not）─────────────────────────────────
+
+    async def _read_image_bytes(self, file: FileContent) -> bytes | None:
+        """读取本地图片字节（bytes 或路径）"""
+        if file is None:
+            return None
+        if isinstance(file, bytes):
+            return file
+        try:
+            return await asyncio.to_thread(Path(file).read_bytes)
+        except Exception as exc:
+            logger.debug(f"[ReverseSearcher] 读取图片失败: {exc}")
+            return None
+
+    async def _download_image_bytes(self, url: str) -> bytes | None:
+        """下载 URL 图片字节（含 SSRF 校验）"""
+        if not await asyncio.to_thread(is_safe_image_ref, url):
+            return None
+        try:
+            async with Network(**self._network_kwargs()) as client:
+                return await client.download(url)
+        except Exception as exc:
+            logger.debug(f"[ReverseSearcher] 下载图片失败: {exc}")
+            return None
+
+    async def detect_ai(
+        self,
+        file: FileContent = None,
+        url: str | None = None,
+        require_enabled: bool = False,
+    ) -> AIDetectionResult | None:
+        """调用 AI or Not 检测图片是否为 AI 生成
+
+        参数:
+            file: 本地图片（bytes 或路径）
+            url: 图片 URL（file 为空时使用）
+            require_enabled: 为 True 且未配置 API Key 时返回错误结果（供 ai 引擎提示）
+
+        返回:
+            Optional[AIDetectionResult]: 未启用且非必需时返回 None；否则返回检测结果
+            （失败也返回带 error 的结果，不抛异常）
+        """
+        if not self.ai_detector.enabled:
+            if not require_enabled:
+                return None
+            return AIDetectionResult(
+                verdict="error",
+                error="AI 检测未启用：请在配置中开启 AI or Not 并填写 API Key",
+            )
+
+        image = await self._read_image_bytes(file)
+        if not image and url:
+            image = await self._download_image_bytes(url)
+        if not image:
+            return AIDetectionResult(verdict="error", error="无法读取图片内容")
+
+        return await self.ai_detector.detect(image, self._network_kwargs())
+
+    async def _precheck_ai(
+        self, file: FileContent = None, url: str | None = None
+    ) -> list[dict]:
+        """搜图前的 AI 生成检测，返回卡片徽章列表（未启用时为空）"""
+        detection = await self.detect_ai(file=file, url=url)
+        return [detection.badge()] if detection else []
+
+    @staticmethod
+    def _animetrace_badges(response: Any) -> list[dict]:
+        """AnimeTrace 自带的 AI 检测结果 → 徽章"""
+        ai = getattr(response, "ai", None)
+        if ai is None:
+            return []
+        if ai:
+            return [
+                {
+                    "label": "AnimeTrace：判定为 AI 生成",
+                    "tone": "warn",
+                    "text": "⚠️ AnimeTrace：判定为 AI 生成",
+                }
+            ]
+        return [
+            {
+                "label": "AnimeTrace：非 AI 生成",
+                "tone": "ok",
+                "text": "✅ AnimeTrace：非 AI 生成",
+            }
+        ]
 
     # ── 文本模式：按结果分条输出（每条 = 文本 + 图片）──────────────
 
@@ -531,6 +654,29 @@ class BaseSearchModel:
             list[dict]: 可直接逐条发送的消息列表
         """
         label = self._engine_label(api)
+
+        # AI 检测引擎：不做反向搜索，只返回检测结论
+        if api == "ai":
+            detection = await self.detect_ai(file=file, url=url, require_enabled=True)
+            return [
+                {
+                    "text": f"🔍「{label}」\n\n{detection.text_block()}",
+                    "image": None,
+                }
+            ]
+
+        # 未知引擎先拦下，避免白跑一次 AI 检测
+        if api not in ENGINE_MAP:
+            return [
+                {
+                    "text": f"🔍「{label}」\n不支持的引擎: {api}",
+                    "image": None,
+                }
+            ]
+
+        # 其余引擎：先过一遍 AI 生成检测（未启用时不产生徽章）
+        ai_badges = await self._precheck_ai(file=file, url=url)
+
         try:
             response = await self._search_engine(api=api, file=file, url=url, **kwargs)
         except Exception as e:
@@ -550,13 +696,16 @@ class BaseSearchModel:
         ][: max(1, max_items)]
 
         error = (getattr(response, "error", "") or "").strip()
-        ai_detect = getattr(response, "ai", None)
+        # AnimeTrace 自带的 AI 检测与 AI or Not 结果一起展示
+        ai_badges = [*ai_badges, *self._animetrace_badges(response)]
 
         header = f"🔍「{label}」搜索结果"
         if entries:
             header += f" · 共 {len(entries)} 条"
-        if ai_detect is not None:
-            header += "\n" + ("⚠️ 疑似 AI 生成" if ai_detect else "✅ 非 AI 生成")
+        if ai_badges:
+            header += "\n" + "\n".join(
+                badge.get("text") or badge["label"] for badge in ai_badges
+            )
         if error:
             header += f"\n⚠️ {error}"
 
@@ -632,7 +781,7 @@ class BaseSearchModel:
         api: str,
         items: list[dict],
         source_image: Image.Image | None = None,
-        ai_detect: bool | None = None,
+        ai_badges: list[dict] | None = None,
     ) -> Image.Image:
         """绘制搜索结果图像
 
@@ -642,14 +791,32 @@ class BaseSearchModel:
         try:
             renderer = ResultCardRenderer()
             img_path = await renderer.render_html_async(
-                api, items, source_image, ai_detect=ai_detect
+                api, items, source_image, ai_badges=ai_badges
             )
             if img_path:
                 return await asyncio.to_thread(Image.open, img_path)
         except Exception:
             pass
         return await asyncio.to_thread(
-            self._draw_results_pil, api, items, source_image, ai_detect=ai_detect
+            self._draw_results_pil, api, items, source_image, ai_badges=ai_badges
+        )
+
+    async def draw_ai_result(
+        self,
+        api: str,
+        detection: AIDetectionResult,
+        source_image: Image.Image | None = None,
+    ) -> Image.Image:
+        """绘制「AI 检测」结果卡片（HTML 优先，失败降级 PIL）"""
+        renderer = ResultCardRenderer()
+        try:
+            img_path = await renderer.render_ai_html_async(api, detection, source_image)
+            if img_path:
+                return await asyncio.to_thread(Image.open, img_path)
+        except Exception:
+            pass
+        return await asyncio.to_thread(
+            renderer.render_ai_pil, api, detection, source_image
         )
 
     def _draw_results_pil(
@@ -657,12 +824,12 @@ class BaseSearchModel:
         api: str,
         items: list[dict],
         source_image: Image.Image | None = None,
-        ai_detect: bool | None = None,
+        ai_badges: list[dict] | None = None,
     ) -> Image.Image:
         """PIL 手绘卡片（HTML 渲染不可用时的回退）"""
         try:
             renderer = ResultCardRenderer()
-            return renderer.render_pil(api, items, source_image, ai_detect=ai_detect)
+            return renderer.render_pil(api, items, source_image, ai_badges=ai_badges)
         except Exception:
             return self._draw_results_legacy(api, "渲染失败", source_image)
 
@@ -910,13 +1077,19 @@ class BaseSearchModel:
             y_position += line_height
         return img
 
-    async def draw_error(self, api: str, error_msg: str) -> Image.Image:
+    async def draw_error(
+        self, api: str, error_msg: str, ai_badges: list[dict] | None = None
+    ) -> Image.Image:
         """绘制错误图像（HTML 卡片优先，失败降级 PIL）"""
+        renderer = ResultCardRenderer()
         try:
-            renderer = ResultCardRenderer()
-            img_path = await renderer.render_error_html_async(api, error_msg)
+            img_path = await renderer.render_error_html_async(
+                api, error_msg, ai_badges=ai_badges
+            )
             if img_path:
                 return await asyncio.to_thread(Image.open, img_path)
         except Exception:
             pass
-        return await asyncio.to_thread(renderer.render_error_pil, api, error_msg)
+        return await asyncio.to_thread(
+            renderer.render_error_pil, api, error_msg, ai_badges=ai_badges
+        )

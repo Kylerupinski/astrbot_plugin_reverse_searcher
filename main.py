@@ -89,10 +89,33 @@ class ReverseSearcherPlugin(Star):
         self.client = httpx.AsyncClient(proxy=config.get("proxies", "") or None)
         self.user_states = {}
         self.cleanup_task = asyncio.create_task(self.cleanup_loop())
+
+        # ── AI 生成检测（AI or Not）──────────────
+        aiornot_config = config.get("aiornot", {}) or {}
+        aiornot_enabled = bool(aiornot_config.get("enabled", False))
+        aiornot_key = (
+            str(aiornot_config.get("api_key", "") or "").strip()
+            if aiornot_enabled
+            else ""
+        )
+        self.aiornot_enabled = bool(aiornot_key)
+        if aiornot_enabled and not aiornot_key:
+            logger.warning(
+                "[ReverseSearcher] 已启用 AI 检测但未填写 AI or Not API Key，"
+                "除「AI 检测」引擎外的搜图将不带 AI 检测结果"
+            )
+        try:
+            aiornot_timeout = float(aiornot_config.get("timeout", 20) or 20)
+        except (TypeError, ValueError):
+            aiornot_timeout = 20.0
+
         available_apis_config = config.get("available_apis", {})
         self.available_engines = [
             e for e in ALL_ENGINES if available_apis_config.get(e, True)
         ]
+        # 「AI 检测」引擎依赖 AI or Not API Key，未配置时不展示（但可提示如何启用）
+        if not self.aiornot_enabled and "ai" in self.available_engines:
+            self.available_engines.remove("ai")
         timeout_settings = config.get("timeout_settings", {})
         self.search_params_timeout = timeout_settings.get("search_params_timeout", 30)
         keyword_config = config.get("keyword", {})
@@ -121,6 +144,8 @@ class ReverseSearcherPlugin(Star):
             ),
             # 结果配图档位：low（超低清）/ standard（标清）/ original（原图）
             result_image_size=config.get("result_image_size", "standard"),
+            aiornot_api_key=aiornot_key,
+            aiornot_timeout=aiornot_timeout,
         )
         # 输出方式：card（渲染结果卡片图片，默认）/ text（纯文本，不使用卡片设计）
         output_mode = str(config.get("output_mode", "card") or "card").strip().lower()
@@ -637,6 +662,16 @@ class ReverseSearcherPlugin(Star):
             actual_engine = self._get_engine_by_name(message_text.lower())
             if actual_engine in self.available_engines:
                 state["engine"] = actual_engine
+            elif actual_engine == "ai" and not self.aiornot_enabled:
+                # 「AI 检测」引擎需要 AI or Not API Key 才能使用
+                yield event.plain_result(
+                    "「AI 检测」需要先在插件配置中开启 AI or Not 并填写 API Key"
+                    "（在 https://www.aiornot.com/dashboard/api 获取）"
+                )
+                state["timestamp"] = time.time()
+                async for result in self._send_engine_prompt(event, state):
+                    yield result
+                return
             elif actual_engine in ALL_ENGINES:
                 # 引擎被禁用
                 yield event.plain_result(
@@ -738,6 +773,15 @@ class ReverseSearcherPlugin(Star):
                 actual_engine = self._get_engine_by_name(potential_engine)
                 if actual_engine in self.available_engines:
                     engine = actual_engine
+                elif actual_engine == "ai" and not self.aiornot_enabled:
+                    error = {
+                        "type": "disabled_engine",
+                        "engine_name": potential_engine,
+                        "message": (
+                            "「AI 检测」需要先在插件配置中开启 AI or Not 并填写 API Key"
+                            "（在 https://www.aiornot.com/dashboard/api 获取）"
+                        ),
+                    }
                 elif actual_engine in ALL_ENGINES:
                     error = {
                         "type": "disabled_engine",

@@ -142,7 +142,7 @@ class TestSearchTextMessages:
         entries = [{"text": "结果 #1", "thumbnail": "", "crop_box": None}]
         _patch(model, monkeypatch, _FakeResponse(entries=entries, ai=True))
         messages = asyncio.run(model.search_text_messages(api="animetrace", file=b"x"))
-        assert "疑似 AI 生成" in messages[0]["text"]
+        assert "AnimeTrace：判定为 AI 生成" in messages[0]["text"]
 
     def test_falls_back_to_generic_entries(self, monkeypatch):
         model = _model()

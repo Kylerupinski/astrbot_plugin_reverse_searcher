@@ -28,6 +28,22 @@
       "description": "允许上传到第三方图床",
       "hint": "Google/Yandex 本地图搜需先把图片上传到临时图床（tmpfiles/uguu/litterbox 等）。关闭后这两引擎不可用本地图搜，需改用图片 URL"
     },
+    "aiornot": {
+      "description": "AI 生成检测（AI or Not）",
+      "hint": "启用后每次识图都会先调用 aiornot.com 检测图片是否为 AI 生成，结果与搜索结果一起展示；同时解锁「AI 检测」引擎（只检测、不反搜）",
+      "enabled": {
+        "description": "启用 AI 生成检测",
+        "hint": "开启后每次识图前会先做一次 AI 检测（会多一次网络请求，并按 AI or Not 的接口计费）"
+      },
+      "api_key": {
+        "description": "AI or Not API Key",
+        "hint": "从 https://www.aiornot.com/dashboard/api 获取；留空则不会调用 AI 检测"
+      },
+      "timeout": {
+        "description": "AI 检测超时（秒）",
+        "hint": "超过该时间未返回则跳过 AI 检测，继续正常搜图"
+      }
+    },
     "timeout_settings": {
       "description": "超时配置",
       "search_params_timeout": {
@@ -59,6 +75,9 @@
         },
         "saucenao": {
           "description": "SauceNAO"
+        },
+        "ai": {
+          "description": "AI 检测"
         }
       }
     },
@@ -78,6 +97,10 @@
       },
       "saucenao": {
         "description": "SauceNAO"
+      },
+      "ai": {
+        "description": "AI 检测（需配置 AI or Not API Key）",
+        "hint": "只检测图片是否为 AI 生成，不做反向搜索；未填写 API Key 时该引擎不会出现"
       }
     },
     "default_params": {

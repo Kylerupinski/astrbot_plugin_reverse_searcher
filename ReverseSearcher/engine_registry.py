@@ -74,6 +74,15 @@ ENGINE_REGISTRY: dict[str, EngineDef] = {
         anime_focused=False,
         color=(255, 204, 0),
     ),
+    # 纯 AI 生成检测（不做反向搜索）：依赖 AI or Not API
+    "ai": EngineDef(
+        name="ai",
+        label="AI 检测",
+        desc="判断图片是否为 AI 生成（AI or Not）",
+        url="https://www.aiornot.com/",
+        anime_focused=False,
+        color=(16, 185, 129),  # #10B981 翡翠绿
+    ),
 }
 
 # 便捷别名
@@ -148,6 +157,16 @@ INTENT_KEYWORD_WEIGHTS: dict[str, dict[str, int]] = {
         "商品图": 5,
         "人脸": 3,
     },
+    "ai": {
+        "ai生成": 10,
+        "ai 生成": 10,
+        "是不是ai": 10,
+        "ai检测": 10,
+        "ai 检测": 10,
+        "识别ai": 9,
+        "ai图": 8,
+        "ai绘画": 8,
+    },
 }
 
 
@@ -213,3 +232,4 @@ def inject_request_classes():
     ENGINE_REGISTRY["ehentai"].req_class = EHentai
     ENGINE_REGISTRY["google"].req_class = GoogleLens
     ENGINE_REGISTRY["saucenao"].req_class = SauceNAO
+    # "ai" 不做反向搜索（没有请求类），由 model 直接调用 AI or Not 检测接口

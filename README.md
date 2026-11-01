@@ -27,6 +27,7 @@
 | 特性 | 说明 |
 |------|------|
 | **五大搜索引擎** | AnimeTrace 认角色、SauceNAO 找出处、Google Lens 综合兜底、Yandex 找相似、E-Hentai 搜本子，各司其职 |
+| **AI 生成检测** | 接入 [AI or Not](https://www.aiornot.com/)，每次识图前先判断图片是否为 AI 生成（徽章/文本展示）；也可用 `ai` 引擎只检测不反搜 |
 | **关键词触发** | 发送 `以图搜图` + 图片即可搜索，支持引擎别名快捷指定（`a`/`s`/`e`/`g`/`y`） |
 | **LLM 主动搜图** | 机器人根据对话意图自主判断何时搜图、用哪个引擎，无需手动指令 |
 | **意图路由** | 基于关键词加权匹配自动选择最优引擎——说「这是谁」自动走 AnimeTrace |
@@ -105,6 +106,7 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
 | **ehentai** | E-Hentai 同人本搜索 | 免配置（ExHentai 需 Cookie） |
 | **saucenao** | 综合出处搜索，Pixiv 插画首选 | 建议配 `api_key` |
 | **google** | Google Lens 综合兜底 | 需 SerpAPI Key |
+| **ai** | AI 生成检测：判断图片是不是 AI 画的，**不做反向搜索** | 需 AI or Not API Key |
 
 ---
 
@@ -121,6 +123,16 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
 | `proxies` | string | `""` | 代理地址，如 `http://127.0.0.1:7890`（国内访问必填） |
 | `allow_third_party_image_host` | bool | `true` | 是否允许把本地图上传到第三方临时图床（Google/Yandex 本地图搜需要；关闭后这两引擎不可用本地图搜） |
 
+### AI 生成检测 `aiornot`
+
+| 配置项 | 类型 | 默认 | 说明 |
+|--------|------|------|------|
+| `enabled` | bool | `false` | 启用后每次识图前先调用 [AI or Not](https://www.aiornot.com/) 检测图片是否为 AI 生成，结果与搜索结果一起展示（卡片徽章 / 文本一行）；同时解锁 `ai` 引擎 |
+| `api_key` | string | `""` | AI or Not API Key，在 [控制台](https://www.aiornot.com/dashboard/api) 获取；留空则不启用 |
+| `timeout` | int | `20` | 检测超时（秒）；超时自动跳过，不影响正常搜图 |
+
+> 接口说明：插件调用 `POST https://api.aiornot.com/v2/image/sync`（`only=ai_generated`，避免 deepfake 等额外计费），只上传图片、不做反向搜索。启用后会把图片发送给 AI or Not，请自行评估隐私与费用。
+
 ### 超时配置 `timeout_settings`
 
 | 配置项 | 类型 | 默认 | 说明 |
@@ -132,13 +144,14 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
 | 配置项 | 类型 | 默认 | 说明 |
 |--------|------|------|------|
 | `trigger_keywords` | list | `["以图搜图", "image search"]` | 触发搜索的关键词列表 |
-| `engine_keywords` | object | `a/s/e/g/y` | 各引擎的自定义别名（animetrace=`a`、saucenao=`s`、ehentai=`e`、google=`g`、yandex=`y`） |
+| `engine_keywords` | object | `a/s/e/g/y/ai` | 各引擎的自定义别名（animetrace=`a`、saucenao=`s`、ehentai=`e`、google=`g`、yandex=`y`、ai=`ai`） |
 
 ### 引擎启用 `available_apis`
 
 | 配置项 | 类型 | 默认 | 说明 |
 |--------|------|------|------|
 | `animetrace` / `ehentai` / `google` / `yandex` / `saucenao` | bool | `true` | 各引擎启停开关 |
+| `ai` | bool | `true` | 「AI 检测」引擎开关（只检测、不反搜；未配置 AI or Not API Key 时不显示） |
 
 ### 引擎默认参数 `default_params`
 
@@ -155,6 +168,8 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
 | `yandex.cookies` | **Yandex Cookie**（反爬严格，不填可能 CAPTCHA 无结果，获取方法见 Q5） |
 
 > **隐私披露：本地图会上传第三方图床**——使用**本地图片**搜 **Google / Yandex** 时，插件需把图片先上传到临时图床（按顺序尝试 `uguu.se` / `x0.at` / `pomf.lain.la` / `litterbox.catbox.moe` / `tmpfiles.org`）再以 URL 形式搜索，并回读校验该直链确实返回图片。**这意味着你的图片会被上传到公网临时图床**，保留时长由第三方决定。若需关闭，将 `allow_third_party_image_host` 设为 `false`（此时这两引擎不可用本地图搜，需改用图片 URL 或换用其他引擎）。
+>
+> **隐私披露：AI 检测会上传图片**——启用 `aiornot` 后，每次识图都会把图片发送给 AI or Not（`api.aiornot.com`）做 AI 生成检测，并按对方规则计费。关闭 `aiornot.enabled` 即可完全停止上传。
 
 ### 快速配置模板
 
@@ -166,14 +181,19 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
   "enable_keyword_trigger": true,
   "proxies": "",
   "allow_third_party_image_host": true,
+  "aiornot": {
+    "enabled": false,
+    "api_key": "",
+    "timeout": 20
+  },
   "timeout_settings": {
     "search_params_timeout": 30
   },
   "keyword": {
     "trigger_keywords": ["以图搜图", "image search"],
-    "engine_keywords": { "animetrace": "a", "ehentai": "e", "google": "g", "yandex": "y", "saucenao": "s" }
+    "engine_keywords": { "animetrace": "a", "ehentai": "e", "google": "g", "yandex": "y", "saucenao": "s", "ai": "ai" }
   },
-  "available_apis": { "animetrace": true, "ehentai": true, "google": true, "yandex": true, "saucenao": true },
+  "available_apis": { "animetrace": true, "ehentai": true, "google": true, "yandex": true, "saucenao": true, "ai": true },
   "default_params": {
     "animetrace": { "model": "full_game_model_kira", "is_multi": false, "ai_detect": false },
     "ehentai": { "is_ex": false, "covers": false, "similar": true, "exp": false, "cookies": "" },
@@ -217,7 +237,7 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | `image_base64` / `image_url` | string? | 图片来源（二选一） |
-| `engine` | string | **必填**，引擎名：`animetrace` / `saucenao` / `ehentai` / `google` / `yandex` |
+| `engine` | string | **必填**，引擎名：`animetrace` / `saucenao` / `ehentai` / `google` / `yandex` / `ai`（`ai` 只做 AI 生成检测） |
 
 ---
 

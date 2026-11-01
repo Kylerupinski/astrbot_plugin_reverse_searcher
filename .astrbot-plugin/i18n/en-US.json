@@ -28,6 +28,22 @@
       "description": "Allow uploading to third-party image hosts",
       "hint": "Local image search on Google/Yandex requires uploading the image to a temporary image host first (tmpfiles/uguu/litterbox, etc.). When disabled, local image search is unavailable for these two engines and an image URL must be used instead"
     },
+    "aiornot": {
+      "description": "AI image detection (AI or Not)",
+      "hint": "When enabled, every search first checks whether the image is AI-generated via aiornot.com and shows the result with the search results; it also unlocks the \"AI detection\" engine (detection only, no reverse search)",
+      "enabled": {
+        "description": "Enable AI detection",
+        "hint": "Adds one extra request per search (billed by AI or Not)"
+      },
+      "api_key": {
+        "description": "AI or Not API key",
+        "hint": "Get it from https://www.aiornot.com/dashboard/api; leave empty to skip AI detection"
+      },
+      "timeout": {
+        "description": "AI detection timeout (seconds)",
+        "hint": "Give up AI detection after this long and continue with the normal search"
+      }
+    },
     "timeout_settings": {
       "description": "Timeout settings",
       "search_params_timeout": {
@@ -59,6 +75,9 @@
         },
         "saucenao": {
           "description": "SauceNAO"
+        },
+        "ai": {
+          "description": "AI detection"
         }
       }
     },
@@ -78,6 +97,10 @@
       },
       "saucenao": {
         "description": "SauceNAO"
+      },
+      "ai": {
+        "description": "AI detection (needs an AI or Not API key)",
+        "hint": "Detects whether an image is AI-generated without reverse search; hidden until an API key is configured"
       }
     },
     "default_params": {

@@ -28,6 +28,22 @@
       "description": "サードパーティの画像ホストへのアップロードを許可する",
       "hint": "Google/Yandex のローカル画像検索では、先に画像を一時的な画像ホスト（tmpfiles/uguu/litterbox など）へアップロードする必要があります。無効にするとこの 2 エンジンではローカル画像検索が使えなくなり、画像 URL を使う必要があります"
     },
+    "aiornot": {
+      "description": "AI 生成検出（AI or Not）",
+      "hint": "有効にすると、画像検索の前に aiornot.com で AI 生成かどうかを判定し、結果と一緒に表示します。あわせて「AI 検出」エンジン（検出のみ、逆検索なし）も利用できます",
+      "enabled": {
+        "description": "AI 生成検出を有効化",
+        "hint": "検索ごとに 1 回 AI 検出を実行します（AI or Not の API 課金対象）"
+      },
+      "api_key": {
+        "description": "AI or Not API キー",
+        "hint": "https://www.aiornot.com/dashboard/api で取得。空欄なら AI 検出は実行されません"
+      },
+      "timeout": {
+        "description": "AI 検出のタイムアウト（秒）",
+        "hint": "時間内に応答がなければ AI 検出を諦めて通常の検索を続行します"
+      }
+    },
     "timeout_settings": {
       "description": "タイムアウト設定",
       "search_params_timeout": {
@@ -59,6 +75,9 @@
         },
         "saucenao": {
           "description": "SauceNAO"
+        },
+        "ai": {
+          "description": "AI 検出"
         }
       }
     },
@@ -78,6 +97,10 @@
       },
       "saucenao": {
         "description": "SauceNAO"
+      },
+      "ai": {
+        "description": "AI 検出（AI or Not API キーが必要）",
+        "hint": "画像が AI 生成かどうかだけを判定し、逆検索は行いません。API キー未設定時は表示されません"
       }
     },
     "default_params": {

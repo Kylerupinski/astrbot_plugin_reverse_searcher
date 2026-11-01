@@ -1,7 +1,7 @@
 name: reverse_searcher
 display_name: 图片反搜助手
-desc: 支持 AnimeTrace、E-Hentai、Google Lens、Yandex、SauceNAO 五大引擎的图片反向搜索，搜索结果可渲染为精美卡片图片或纯文本输出，同时提供 LLM 主动搜图工具
-version: 1.1.6
+desc: 支持 AnimeTrace、E-Hentai、Google Lens、Yandex、SauceNAO 五大引擎的图片反向搜索，并接入 AI or Not 在识图前检测图片是否为 AI 生成；结果可渲染为精美卡片图片或纯文本输出，同时提供 LLM 主动搜图工具
+version: 1.1.7
 author: OMSociety
 repo: https://github.com/OMSociety/astrbot_plugin_reverse_searcher
 tags:

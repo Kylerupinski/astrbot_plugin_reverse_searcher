@@ -13,14 +13,16 @@ import asyncio
 import base64
 import html
 import io
+import re
 from pathlib import Path
+from typing import Any, ClassVar
 
 from astrbot.api import logger
 from astrbot.core import html_renderer
 from PIL import Image, ImageDraw, ImageFont
 
 from ..engine_registry import ENGINE_REGISTRY
-from .templates import ERROR_TMPL, RESULT_CARD_TMPL
+from .templates import AI_RESULT_TMPL, ERROR_TMPL, RESULT_CARD_TMPL
 
 # HTML 渲染最长等待（秒）：超时降级 PIL，避免拖慢整个搜索流程
 HTML_RENDER_TIMEOUT = 25
@@ -71,6 +73,23 @@ def _engine_label(engine: str) -> str:
     return engine_def.label if engine_def else engine.upper()
 
 
+def _tone_color_hex(tone: str) -> str:
+    """徽章/判定文字配色（warn 橙 / ok 绿 / neutral 灰）"""
+    return {"warn": "#ea580c", "ok": "#16a34a"}.get(tone, "#6b7280")
+
+
+# 常见 emoji / 符号（PIL 兜底卡片所用字体没有 emoji 字形，绘制前剔除，
+# 否则会渲染成方框；文本输出仍保留 emoji 由平台渲染）
+_EMOJI_RE = re.compile(
+    "[\U0001f000-\U0001faff\u2190-\u21ff\u2300-\u27bf\u2b00-\u2bff\ufe0f\u200d]+"
+)
+
+
+def _strip_emoji(text: str) -> str:
+    """去掉 emoji / 箭头等符号并压缩空白"""
+    return re.sub(r"\s{2,}", " ", _EMOJI_RE.sub("", str(text))).strip()
+
+
 def _sim_class(sim_str) -> str:
     """相似度 → 徽章样式（≥90 绿 / ≥70 橙 / >0 红 / 无 灰）"""
     try:
@@ -119,14 +138,14 @@ class ResultCardRenderer:
         engine: str,
         results: list[dict],
         source_image: Image.Image | None = None,
-        ai_detect: bool | None = None,
+        ai_badges: list[dict] | None = None,
     ) -> str | None:
         """HTML 模板渲染，返回本地图片路径；失败/超时返回 None（调用方降级）"""
         data = {
             "engine_label": _engine_label(engine),
             "engine_color": _engine_color_hex(engine),
             "count": len(results),
-            "ai_detect": ai_detect,
+            "ai_badges": ai_badges or [],
             "source_image_b64": _img_to_data_uri(source_image, max_size=400),
             "results": [
                 {
@@ -167,13 +186,19 @@ class ResultCardRenderer:
             )
             return None
 
-    async def render_error_html_async(self, engine: str, error_msg: str) -> str | None:
+    async def render_error_html_async(
+        self,
+        engine: str,
+        error_msg: str,
+        ai_badges: list[dict] | None = None,
+    ) -> str | None:
         """错误提示卡片（HTML），返回图片路径；失败返回 None"""
         data = {
             "engine_label": _engine_label(engine),
             "engine_color": _engine_color_hex(engine),
             # error_msg 可能含第三方文本，转义防 HTML/脚本注入
             "error_msg": html.escape(str(error_msg)),
+            "ai_badges": ai_badges or [],
         }
         try:
             return await asyncio.wait_for(
@@ -187,6 +212,47 @@ class ResultCardRenderer:
             )
         except Exception as e:
             logger.warning(f"[ReverseSearcher] 错误卡片 HTML 渲染失败，降级 PIL: {e}")
+            return None
+
+    async def render_ai_html_async(
+        self,
+        engine: str,
+        detection: Any,
+        source_image: Image.Image | None = None,
+    ) -> str | None:
+        """AI 生成检测结果卡片（HTML），返回图片路径；失败返回 None"""
+        probability_pct = "0"
+        if not detection.failed and detection.ai_probability is not None:
+            try:
+                percent = float(detection.ai_probability) * 100
+                probability_pct = f"{max(0.0, min(100.0, percent)):.0f}"
+            except (TypeError, ValueError):
+                probability_pct = "0"
+        data = {
+            "engine_label": _engine_label(engine),
+            "engine_color": _engine_color_hex(engine),
+            "verdict_text": html.escape(detection.verdict_text()),
+            "probability_text": html.escape(detection.probability_text()),
+            "probability_pct": probability_pct,
+            "generator": html.escape(detection.generator or ""),
+            "error": html.escape(detection.error) if detection.failed else "",
+            "verdict_color": _tone_color_hex(detection.tone()),
+            "source_image_b64": _img_to_data_uri(source_image, max_size=400),
+        }
+        try:
+            return await asyncio.wait_for(
+                html_renderer.render_custom_template(
+                    AI_RESULT_TMPL,
+                    data,
+                    return_url=False,
+                    options={"full_page": True, "type": "jpeg", "quality": 80},
+                ),
+                timeout=HTML_RENDER_TIMEOUT,
+            )
+        except Exception as e:
+            logger.warning(
+                f"[ReverseSearcher] AI 检测卡片 HTML 渲染失败，降级 PIL: {e}"
+            )
             return None
 
     # ── PIL 回退 ──────────────────────────────────────────
@@ -210,12 +276,12 @@ class ResultCardRenderer:
         engine: str,
         results: list[dict],
         source_image: Image.Image | None = None,
-        ai_detect: bool | None = None,
+        ai_badges: list[dict] | None = None,
     ) -> Image.Image:
         """PIL 手绘结果卡片（HTML 渲染不可用时的回退）"""
         self.small, self.body, self.title, self.header_font, self.mono = _load_fonts()
         engine_color = _hex_to_rgb(_engine_color_hex(engine))
-        total_height = self._calc_height(results, source_image, ai_detect)
+        total_height = self._calc_height(results, source_image, ai_badges)
         bg_color = (248, 249, 250)
         canvas = Image.new("RGB", (self.CARD_WIDTH, total_height), bg_color)
         draw = ImageDraw.Draw(canvas)
@@ -223,8 +289,7 @@ class ResultCardRenderer:
         self._draw_header_pil(draw, engine, engine_color, len(results))
 
         y = self.CARD_PADDING + self.HEADER_H
-        if ai_detect is not None:
-            y = self._draw_ai_badge(draw, ai_detect, y)
+        y = self._draw_ai_badges(draw, ai_badges, y)
         if source_image:
             y = self._draw_source_thumb(canvas, source_image, y)
 
@@ -235,10 +300,17 @@ class ResultCardRenderer:
 
         return canvas
 
-    def render_error_pil(self, engine: str, error_msg: str) -> Image.Image:
+    def render_error_pil(
+        self,
+        engine: str,
+        error_msg: str,
+        ai_badges: list[dict] | None = None,
+    ) -> Image.Image:
         """PIL 错误提示图（回退）"""
         self.small, self.body, self.title, self.header_font, self.mono = _load_fonts()
-        w, h = self.CARD_WIDTH, 200
+        badges = list(ai_badges or [])
+        w = self.CARD_WIDTH
+        h = 200 + (44 * len(badges))
         canvas = Image.new("RGB", (w, h), (248, 249, 250))
         draw = ImageDraw.Draw(canvas)
         err_color = _hex_to_rgb(_engine_color_hex(engine))
@@ -256,17 +328,98 @@ class ResultCardRenderer:
             font=self.body,
             fill=(100, 100, 100),
         )
+        if badges:
+            self._draw_ai_badges(draw, badges, 124)
+        return canvas
+
+    def render_ai_pil(
+        self,
+        engine: str,
+        detection: Any,
+        source_image: Image.Image | None = None,
+    ) -> Image.Image:
+        """PIL 版 AI 检测结果卡片（HTML 不可用时的回退）"""
+        self.small, self.body, self.title, self.header_font, self.mono = _load_fonts()
+        engine_color = _hex_to_rgb(_engine_color_hex(engine))
+        verdict_color = _hex_to_rgb(_tone_color_hex(detection.tone()))
+        failed = detection.failed
+
+        lines: list[str] = []
+        if failed:
+            lines.append(detection.error or "检测失败")
+        elif detection.verdict == "ai" and detection.generator:
+            lines.append(f"疑似生成器：{detection.generator}")
+
+        width = self.CARD_WIDTH
+        body_h = 56 + (36 if not failed else 34 * max(1, len(lines)))
+        source_h = 180 + 12 if source_image else 0
+        height = self.HEADER_H + body_h + source_h + self.CARD_PADDING * 2 + 24
+        canvas = Image.new("RGB", (width, height), (248, 249, 250))
+        draw = ImageDraw.Draw(canvas)
+
+        draw.rectangle([(0, 0), (width, self.HEADER_H)], fill=engine_color)
+        title = f"「{_engine_label(engine)}」AI 生成检测"
+        tw = draw.textlength(title, font=self.title)
+        draw.text(((width - tw) // 2, 18), title, font=self.title, fill=(255, 255, 255))
+
+        y = self.HEADER_H + self.CARD_PADDING
+        draw.text(
+            (self.CARD_PADDING, y),
+            detection.verdict_text(),
+            font=self.title,
+            fill=verdict_color,
+        )
+        y += 52
+        if not failed:
+            draw.text(
+                (self.CARD_PADDING, y),
+                f"AI 生成概率：{detection.probability_text()}",
+                font=self.body,
+                fill=(75, 85, 99),
+            )
+            y += 34
+            if detection.ai_probability is not None:
+                try:
+                    percent = max(0.0, min(1.0, float(detection.ai_probability)))
+                    bar_w = width - self.CARD_PADDING * 2
+                    draw.rounded_rectangle(
+                        [(self.CARD_PADDING, y), (self.CARD_PADDING + bar_w, y + 10)],
+                        radius=5,
+                        fill=(226, 232, 240),
+                    )
+                    fill_w = int(bar_w * percent)
+                    if fill_w > 0:
+                        draw.rounded_rectangle(
+                            [
+                                (self.CARD_PADDING, y),
+                                (self.CARD_PADDING + fill_w, y + 10),
+                            ],
+                            radius=5,
+                            fill=verdict_color,
+                        )
+                except (TypeError, ValueError):
+                    pass
+                y += 30
+        for line in lines:
+            draw.text(
+                (self.CARD_PADDING, y),
+                _strip_emoji(line),
+                font=self.body,
+                fill=(75, 85, 99),
+            )
+            y += 34
+        if source_image:
+            self._draw_source_thumb(canvas, source_image, y + 8)
         return canvas
 
     def _calc_height(
         self,
         results: list,
         source_image: Image.Image | None,
-        ai_detect: bool | None = None,
+        ai_badges: list[dict] | None = None,
     ) -> int:
         h = self.HEADER_H
-        if ai_detect is not None:
-            h += 46
+        h += 44 * len(ai_badges or [])
         if source_image:
             h += 180 + 12
         h += self.CARD_PADDING
@@ -308,22 +461,36 @@ class ResultCardRenderer:
             fill=(255, 255, 255),
         )
 
-    def _draw_ai_badge(self, draw, ai: bool, y: int) -> int:
-        badge_w, badge_h = 220, 34
-        x = self.CARD_PADDING
-        badge_color = (255, 138, 101) if ai else (102, 187, 106)
-        label = "⚠ AI 生成嫌疑" if ai else "✓ 非 AI 生成"
-        draw.rounded_rectangle(
-            [(x, y), (x + badge_w, y + badge_h)], radius=6, fill=badge_color
-        )
-        tw = draw.textlength(label, font=self.small)
-        draw.text(
-            (x + (badge_w - tw) // 2, y + 7),
-            label,
-            font=self.small,
-            fill=(255, 255, 255),
-        )
-        return y + badge_h + 10
+    _BADGE_COLORS: ClassVar[dict[str, tuple[int, int, int]]] = {
+        "warn": (245, 158, 11),
+        "ok": (34, 197, 94),
+        "neutral": (107, 114, 128),
+    }
+
+    def _draw_ai_badges(self, draw, badges: list[dict] | None, y: int) -> int:
+        """绘制 AI 检测徽章（可多枚，逐行排列）"""
+        for badge in badges or []:
+            label = _strip_emoji(badge.get("label") or "")
+            tone = str(badge.get("tone") or "neutral")
+            color = self._BADGE_COLORS.get(tone, self._BADGE_COLORS["neutral"])
+            badge_h = 34
+            text_w = int(draw.textlength(label, font=self.small))
+            badge_w = max(
+                220, min(text_w + 32, self.CARD_WIDTH - self.CARD_PADDING * 2)
+            )
+            draw.rounded_rectangle(
+                [(self.CARD_PADDING, y), (self.CARD_PADDING + badge_w, y + badge_h)],
+                radius=6,
+                fill=color,
+            )
+            draw.text(
+                (self.CARD_PADDING + 16, y + 7),
+                label,
+                font=self.small,
+                fill=(255, 255, 255),
+            )
+            y += badge_h + 10
+        return y
 
     def _draw_source_thumb(
         self, canvas: Image.Image, source: Image.Image, y: int

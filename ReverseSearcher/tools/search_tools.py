@@ -200,6 +200,7 @@ class ReverseSearchTool(_BaseSearchTool):
 - 想搜同人本/R18内容 → ehentai
 - 想找相似图片 → yandex
 - 想找原图/综合搜索 → google
+- 想知道图片是不是 AI 生成 → ai（只做 AI 生成检测，不做反向搜索）
 
 芙兰应根据图片内容和对话意图自主选择引擎，不必每次都问用户。"""
 
@@ -236,8 +237,15 @@ class ReverseSearchWithEngineTool(_BaseSearchTool):
                 },
                 "engine": {
                     "type": "string",
-                    "description": "搜索引擎名称",
-                    "enum": ["animetrace", "saucenao", "ehentai", "google", "yandex"],
+                    "description": "搜索引擎名称；ai 表示只做 AI 生成检测（不做反向搜索）",
+                    "enum": [
+                        "animetrace",
+                        "saucenao",
+                        "ehentai",
+                        "google",
+                        "yandex",
+                        "ai",
+                    ],
                 },
             },
             "required": ["engine"],
