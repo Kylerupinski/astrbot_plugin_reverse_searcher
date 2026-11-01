@@ -56,6 +56,10 @@
         "hint": "This endpoint can be slow; 40-90 seconds is recommended"
       }
     },
+    "ai_detect_mode": {
+      "description": "AI detection mode",
+      "hint": "fallback: prefer AI or Not and use Illuminarty only when it fails (quota, error, timeout); both: run both channels at the same time and show both results (they may disagree, useful for comparison)"
+    },
     "timeout_settings": {
       "description": "Timeout settings",
       "search_params_timeout": {

@@ -208,10 +208,11 @@ class TestFallbackChain:
 
         monkeypatch.setattr(model.ai_detector, "detect", primary)
         monkeypatch.setattr(model.illuminarty_detector, "detect", fallback)
-        result = asyncio.run(model.detect_ai(file=_png()))
-        assert result.failed
-        assert "AI or Not" in result.error
-        assert "Illuminarty" in result.error
+        results = asyncio.run(model.detect_ai_all(file=_png()))
+        assert [r.failed for r in results] == [True, True]
+        combined = "；".join(f"{r.provider}：{r.error}" for r in results)
+        assert "AI or Not" in combined
+        assert "Illuminarty" in combined
 
     def test_illuminarty_only(self, monkeypatch):
         model = _model(illuminarty_enabled=True)
@@ -231,14 +232,16 @@ class TestFallbackChain:
         model = _model(illuminarty_enabled=True)
 
         async def fallback(file=None, url=None, require_enabled=False):
-            return AIDetectionResult(
-                verdict="ai",
-                ai_probability=0.77,
-                provider="Illuminarty",
-                fallback_note="AI or Not 不可用，已自动切换备用",
-            )
+            return [
+                AIDetectionResult(
+                    verdict="ai",
+                    ai_probability=0.77,
+                    provider="Illuminarty",
+                    fallback_note="AI or Not 不可用，已自动切换备用",
+                )
+            ]
 
-        monkeypatch.setattr(model, "detect_ai", fallback)
+        monkeypatch.setattr(model, "detect_ai_all", fallback)
         messages = asyncio.run(model.search_text_messages(api="ai", file=_png()))
         text = messages[0]["text"]
         assert "检测来源：Illuminarty" in text
@@ -248,11 +251,13 @@ class TestFallbackChain:
     def test_precheck_badge_mentions_provider(self, monkeypatch):
         model = _model(illuminarty_enabled=True)
 
-        async def fake_detect(file=None, url=None, require_enabled=False):
-            return AIDetectionResult(
-                verdict="human", ai_probability=0.03, provider="Illuminarty"
-            )
+        async def fake_detect_all(file=None, url=None, require_enabled=False):
+            return [
+                AIDetectionResult(
+                    verdict="human", ai_probability=0.03, provider="Illuminarty"
+                )
+            ]
 
-        monkeypatch.setattr(model, "detect_ai", fake_detect)
+        monkeypatch.setattr(model, "detect_ai_all", fake_detect_all)
         badges = asyncio.run(model._precheck_ai(file=_png()))
         assert badges[0]["label"].startswith("Illuminarty：")

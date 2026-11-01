@@ -82,7 +82,7 @@ class IlluminartyDetector:
                     timeout=self.timeout,
                 )
         except Exception as exc:
-            logger.warning(f"[Illuminarty] 请求失败: {type(exc).__name__}: {exc}")
+            logger.debug(f"[Illuminarty] 请求失败: {type(exc).__name__}: {exc}")
             return AIDetectionResult(
                 verdict="error",
                 provider="Illuminarty",
@@ -91,7 +91,7 @@ class IlluminartyDetector:
 
         if resp.status_code != 200:
             snippet = (resp.text or "").strip().replace("\n", " ")[:160]
-            logger.warning(f"[Illuminarty] HTTP {resp.status_code}: {snippet}")
+            logger.debug(f"[Illuminarty] HTTP {resp.status_code}: {snippet}")
             return AIDetectionResult(
                 verdict="error",
                 provider="Illuminarty",

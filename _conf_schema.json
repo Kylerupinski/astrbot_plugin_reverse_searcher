@@ -82,6 +82,16 @@
             }
         }
     },
+    "ai_detect_mode": {
+        "description": "AI 检测方式",
+        "type": "string",
+        "options": [
+            "fallback",
+            "both"
+        ],
+        "hint": "fallback：优先 AI or Not，失败（额度用完/报错/超时）才用 Illuminarty；both：两个通道同时检测，结果分别展示（两者判断可能相反，可对比参考）。两个通道的开关在各自的配置块里",
+        "default": "fallback"
+    },
     "allow_third_party_image_host": {
         "description": "允许上传到第三方图床",
         "type": "bool",

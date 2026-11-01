@@ -119,6 +119,7 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
 | `output_mode` | string | `card` | 结果输出方式：`card` 渲染为卡片图片（带缩略图/相似度徽章）；`text` 纯文本输出，**按结果逐条发送**（每条附带该结果的图片，不使用卡片设计） |
 | `text_merge` | bool | `true` | `text` 模式下把「汇总 + 每条结果」合并为一条**合并转发（聊天记录）**；仅 QQ（aiocqhttp/OneBot）等支持的平台生效，其他平台或关闭时逐条发送 |
 | `result_image_size` | string | `standard` | `text` 模式每条结果配图的分辨率：`low` 超低清（直接用引擎缩略图，最省流量）/ `standard` 标清（原始大图缩放到最长边 640）/ `original` 原图（原始大图不缩放） |
+| `ai_detect_mode` | string | `fallback` | AI 检测方式：`fallback` 优先 AI or Not、失败才用 Illuminarty；`both` 两个通道同时检测并分别展示（判断可能相反，可对比） |
 | `enable_keyword_trigger` | bool | `true` | 关键词触发开关；关闭后仅 LLM 工具可用 |
 | `proxies` | string | `""` | 代理地址，如 `http://127.0.0.1:7890`（国内访问必填） |
 | `allow_third_party_image_host` | bool | `true` | 是否允许把本地图上传到第三方临时图床（Google/Yandex 本地图搜需要；关闭后这两引擎不可用本地图搜） |
@@ -139,9 +140,11 @@ AI or Not 免费额度只有 20 张且**不按月重置**，额度用完后会�
 
 | 配置项 | 类型 | 默认 | 说明 |
 |--------|------|------|------|
-| `enabled` | bool | `false` | 是否启用 Illuminarty 备用检测 |
+| `enabled` | bool | `false` | 是否启用 Illuminarty 通道（按 `ai_detect_mode` 作为备用或与 AI or Not 同时检测） |
 | `timeout` | int | `60` | 检测超时（秒），该接口偶尔偏慢 |
 
+> 两个通道的开关在各自配置块里：`aiornot.enabled` + `api_key`、`illuminarty.enabled`。`ai_detect_mode=both` 时会**同时**请求两个通道，卡片/文本分别展示两个结果（同一张图两者判断相反时可直接对比）；`fallback` 只在主通道失败时请求备用。任一通道失败都会在控制台输出 **WARNING**：`AI 检测通道不可用：<通道> 返回错误：<错误内容>`。
+>
 > 实现方式：直接请求 `app.illuminarty.ai` 主页上传图片时所用的接口 `POST /api/analysis/image`（multipart `file`，返回 `data.probability`），**不需要安装浏览器/Playwright**。注意这是该网站未公开的网页接口，可能随时变更或被限流；失败时插件会如实提示，不影响正常搜图。单图限制 3MB / png·jpg·webp，插件会自动压缩转换。
 
 ### 超时配置 `timeout_settings`
@@ -180,7 +183,7 @@ AI or Not 免费额度只有 20 张且**不按月重置**，额度用完后会�
 
 > **隐私披露：本地图会上传第三方图床**——使用**本地图片**搜 **Google / Yandex** 时，插件需把图片先上传到临时图床（按顺序尝试 `uguu.se` / `x0.at` / `pomf.lain.la` / `litterbox.catbox.moe` / `tmpfiles.org`）再以 URL 形式搜索，并回读校验该直链确实返回图片。**这意味着你的图片会被上传到公网临时图床**，保留时长由第三方决定。若需关闭，将 `allow_third_party_image_host` 设为 `false`（此时这两引擎不可用本地图搜，需改用图片 URL 或换用其他引擎）。
 >
-> **隐私披露：AI 检测会上传图片**——启用 `aiornot` 后，每次识图都会把图片发送给 AI or Not（`api.aiornot.com`）做 AI 生成检测，并按对方规则计费；启用 `illuminarty` 后，AI or Not 失败时会把图片发送给 Illuminarty（`app.illuminarty.ai`）。关闭这两个开关即可完全停止上传。
+> **隐私披露：AI 检测会上传图片**——启用 `aiornot` 后，每次识图都会把图片发送给 AI or Not（`api.aiornot.com`）做 AI 生成检测，并按对方规则计费；启用 `illuminarty` 后，图片会发送给 Illuminarty（`app.illuminarty.ai`）——`both` 模式下两个通道都会收到图片，`fallback` 模式下仅在 AI or Not 失败时发送。关闭这两个开关即可完全停止上传。
 
 ### 快速配置模板
 
@@ -201,6 +204,7 @@ AI or Not 免费额度只有 20 张且**不按月重置**，额度用完后会�
     "enabled": false,
     "timeout": 60
   },
+  "ai_detect_mode": "fallback",
   "timeout_settings": {
     "search_params_timeout": 30
   },

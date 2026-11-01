@@ -188,14 +188,14 @@ class AIorNotDetector:
                     timeout=self.timeout,
                 )
         except Exception as exc:
-            logger.warning(f"[AIorNot] 请求失败: {type(exc).__name__}: {exc}")
+            logger.debug(f"[AIorNot] 请求失败: {type(exc).__name__}: {exc}")
             return AIDetectionResult(
                 verdict="error", error=f"请求失败（{type(exc).__name__}）"
             )
 
         if resp.status_code != 200:
             snippet = (resp.text or "").strip().replace("\n", " ")[:160]
-            logger.warning(f"[AIorNot] 接口返回 HTTP {resp.status_code}: {snippet}")
+            logger.debug(f"[AIorNot] 接口返回 HTTP {resp.status_code}: {snippet}")
             return AIDetectionResult(
                 verdict="error", error=f"HTTP {resp.status_code}：{snippet}"
             )

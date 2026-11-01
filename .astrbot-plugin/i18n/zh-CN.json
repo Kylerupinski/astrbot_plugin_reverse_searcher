@@ -56,6 +56,10 @@
         "hint": "该接口偶尔较慢，建议 40~90 秒"
       }
     },
+    "ai_detect_mode": {
+      "description": "AI 检测方式",
+      "hint": "fallback：优先 AI or Not，失败（额度用完/报错/超时）才用 Illuminarty；both：两个通道同时检测，结果分别展示（两者判断可能相反，可对比参考）"
+    },
     "timeout_settings": {
       "description": "超时配置",
       "search_params_timeout": {

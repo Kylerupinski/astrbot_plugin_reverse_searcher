@@ -91,6 +91,12 @@ class ReverseSearcherPlugin(Star):
         self.cleanup_task = asyncio.create_task(self.cleanup_loop())
 
         # ── AI 生成检测：AI or Not（主）+ Illuminarty（免费备用）──────────────
+        # 多通道协作方式：fallback（默认，主通道失败才用备用）/ both（两端同时检测）
+        ai_detect_mode = str(config.get("ai_detect_mode", "fallback") or "fallback")
+        ai_detect_mode = ai_detect_mode.strip().lower()
+        if ai_detect_mode not in ("fallback", "both"):
+            ai_detect_mode = "fallback"
+
         aiornot_config = config.get("aiornot", {}) or {}
         aiornot_enabled = bool(aiornot_config.get("enabled", False))
         aiornot_key = (
@@ -156,6 +162,7 @@ class ReverseSearcherPlugin(Star):
             aiornot_timeout=aiornot_timeout,
             illuminarty_enabled=self.illuminarty_enabled,
             illuminarty_timeout=illuminarty_timeout,
+            ai_detect_mode=ai_detect_mode,
         )
         # 输出方式：card（渲染结果卡片图片，默认）/ text（纯文本，不使用卡片设计）
         output_mode = str(config.get("output_mode", "card") or "card").strip().lower()

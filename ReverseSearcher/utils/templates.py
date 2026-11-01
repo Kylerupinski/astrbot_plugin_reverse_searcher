@@ -334,23 +334,24 @@ AI_RESULT_TMPL = """<!DOCTYPE html>
   .header-title { font-size: 21px; font-weight: 800; }
   .header-sub { font-size: 13px; opacity: .88; margin-top: 4px; }
   .verdict {
-    font-size: 30px;
+    font-size: 28px;
     font-weight: 800;
-    color: {{ verdict_color }};
-    margin: 20px 24px 4px;
   }
-  .prob { margin: 0 24px; color: #4b5563; font-size: 15px; }
+  .block { padding: 16px 24px 18px; border-top: 1px solid #eef2f7; }
+  .block:first-of-type { border-top: none; }
+  .provider { color: #6b7280; font-size: 13px; margin-bottom: 2px; }
+  .prob { color: #4b5563; font-size: 15px; }
   .bar {
     height: 12px;
     border-radius: 6px;
     background: #e5e7eb;
-    margin: 10px 24px 0;
+    margin: 10px 0 0;
     overflow: hidden;
   }
-  .bar-fill { display: block; height: 100%; background: {{ verdict_color }}; }
-  .meta { margin: 10px 24px 0; color: #6b7280; font-size: 13px; }
+  .bar-fill { display: block; height: 100%; }
+  .meta { margin: 10px 0 0; color: #6b7280; font-size: 13px; }
   .error {
-    margin: 18px 24px 4px;
+    margin: 8px 0 0;
     padding: 12px 14px;
     background: #fef2f2;
     color: #b91c1c;
@@ -358,7 +359,7 @@ AI_RESULT_TMPL = """<!DOCTYPE html>
     font-size: 14px;
     word-break: break-all;
   }
-  .source { padding: 18px 24px 22px; }
+  .source { padding: 6px 24px 22px; }
   .source img {
     max-width: 200px;
     max-height: 200px;
@@ -372,16 +373,21 @@ AI_RESULT_TMPL = """<!DOCTYPE html>
   <div class="card">
     <div class="header">
       <div class="header-title">「{{ engine_label }}」AI 生成检测</div>
-      <div class="header-sub">图片未做反向搜索 · 检测由 {{ provider }} 提供{% if fallback_note %}（{{ fallback_note }}）{% endif %}</div>
+      <div class="header-sub">图片未做反向搜索 · 共 {{ detections|length }} 个通道</div>
     </div>
-    {% if error %}
-    <div class="error">{{ error }}</div>
-    {% else %}
-    <div class="verdict">{{ verdict_text }}</div>
-    <div class="prob">AI 生成概率：{{ probability_text }}</div>
-    <div class="bar"><span class="bar-fill" style="width: {{ probability_pct }}%"></span></div>
-    {% if generator %}<div class="meta">疑似生成器：{{ generator }}</div>{% endif %}
-    {% endif %}
+    {% for d in detections %}
+    <div class="block">
+      <div class="provider">{{ d.provider }}{% if d.note %} · {{ d.note }}{% endif %}</div>
+      {% if d.error %}
+      <div class="error">{{ d.error }}</div>
+      {% else %}
+      <div class="verdict" style="color: {{ d.color }}">{{ d.verdict_text }}</div>
+      <div class="prob">AI 生成概率：{{ d.probability_text }}</div>
+      <div class="bar"><span class="bar-fill" style="width: {{ d.percent }}%; background: {{ d.color }};"></span></div>
+      {% if d.generator %}<div class="meta">疑似生成器：{{ d.generator }}</div>{% endif %}
+      {% endif %}
+    </div>
+    {% endfor %}
     {% if source_image_b64 %}
     <div class="source"><img src="{{ source_image_b64 }}"></div>
     {% endif %}

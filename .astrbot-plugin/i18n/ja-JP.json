@@ -56,6 +56,10 @@
         "hint": "このエンドポイントは遅いことがあるため 40〜90 秒を推奨します"
       }
     },
+    "ai_detect_mode": {
+      "description": "AI 検出方式",
+      "hint": "fallback：AI or Not を優先し、失敗（上限/エラー/タイムアウト）時のみ Illuminarty を使用／both：2 つのチャネルを同時に実行し、両方の結果を並べて表示（判定が食い違う場合もあります）"
+    },
     "timeout_settings": {
       "description": "タイムアウト設定",
       "search_params_timeout": {

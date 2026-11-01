@@ -78,6 +78,20 @@ def _tone_color_hex(tone: str) -> str:
     return {"warn": "#ea580c", "ok": "#16a34a"}.get(tone, "#6b7280")
 
 
+def _probability_pct(detection: Any) -> str:
+    """AI 生成概率 → 进度条百分比字符串（失败/缺失时为 0）"""
+    if getattr(detection, "failed", False):
+        return "0"
+    value = getattr(detection, "ai_probability", None)
+    if value is None:
+        return "0"
+    try:
+        percent = float(value) * 100
+    except (TypeError, ValueError):
+        return "0"
+    return f"{max(0.0, min(100.0, percent)):.0f}"
+
+
 # 常见 emoji / 符号（PIL 兜底卡片所用字体没有 emoji 字形，绘制前剔除，
 # 否则会渲染成方框；文本输出仍保留 emoji 由平台渲染）
 _EMOJI_RE = re.compile(
@@ -217,28 +231,31 @@ class ResultCardRenderer:
     async def render_ai_html_async(
         self,
         engine: str,
-        detection: Any,
+        detections: Any,
         source_image: Image.Image | None = None,
     ) -> str | None:
-        """AI 生成检测结果卡片（HTML），返回图片路径；失败返回 None"""
-        probability_pct = "0"
-        if not detection.failed and detection.ai_probability is not None:
-            try:
-                percent = float(detection.ai_probability) * 100
-                probability_pct = f"{max(0.0, min(100.0, percent)):.0f}"
-            except (TypeError, ValueError):
-                probability_pct = "0"
+        """AI 生成检测结果卡片（HTML），返回图片路径；失败返回 None
+
+        参数:
+            detections: 单个检测结果或结果列表（both 模式下多个通道各一段）
+        """
+        items = detections if isinstance(detections, (list, tuple)) else [detections]
         data = {
             "engine_label": _engine_label(engine),
             "engine_color": _engine_color_hex(engine),
-            "provider": html.escape(detection.provider or "AI or Not"),
-            "fallback_note": html.escape(detection.fallback_note or ""),
-            "verdict_text": html.escape(detection.verdict_text()),
-            "probability_text": html.escape(detection.probability_text()),
-            "probability_pct": probability_pct,
-            "generator": html.escape(detection.generator or ""),
-            "error": html.escape(detection.error) if detection.failed else "",
-            "verdict_color": _tone_color_hex(detection.tone()),
+            "detections": [
+                {
+                    "provider": html.escape(detection.provider or "AI or Not"),
+                    "note": html.escape(detection.fallback_note or ""),
+                    "verdict_text": html.escape(detection.verdict_text()),
+                    "probability_text": html.escape(detection.probability_text()),
+                    "percent": _probability_pct(detection),
+                    "generator": html.escape(detection.generator or ""),
+                    "error": html.escape(detection.error) if detection.failed else "",
+                    "color": _tone_color_hex(detection.tone()),
+                }
+                for detection in items
+            ],
             "source_image_b64": _img_to_data_uri(source_image, max_size=400),
         }
         try:
@@ -337,29 +354,43 @@ class ResultCardRenderer:
     def render_ai_pil(
         self,
         engine: str,
-        detection: Any,
+        detections: Any,
         source_image: Image.Image | None = None,
     ) -> Image.Image:
-        """PIL 版 AI 检测结果卡片（HTML 不可用时的回退）"""
+        """PIL 版 AI 检测结果卡片（HTML 不可用时的回退）
+
+        参数:
+            detections: 单个检测结果或结果列表（每个通道一段）
+        """
         self.small, self.body, self.title, self.header_font, self.mono = _load_fonts()
         engine_color = _hex_to_rgb(_engine_color_hex(engine))
-        verdict_color = _hex_to_rgb(_tone_color_hex(detection.tone()))
-        failed = detection.failed
-
-        lines: list[str] = []
-        if failed:
-            lines.append(detection.error or "检测失败")
-        elif detection.verdict == "ai" and detection.generator:
-            lines.append(f"疑似生成器：{detection.generator}")
+        items = detections if isinstance(detections, (list, tuple)) else [detections]
+        if not items:
+            items = []
 
         width = self.CARD_WIDTH
-        provider_line = f"检测来源：{detection.provider}"
-        if detection.fallback_note:
-            provider_line += f"（{detection.fallback_note}）"
-        body_h = 56 + 26 + (36 if not failed else 34 * max(1, len(lines)))
-        source_h = 180 + 12 if source_image else 0
-        height = self.HEADER_H + body_h + source_h + self.CARD_PADDING * 2 + 24
-        canvas = Image.new("RGB", (width, height), (248, 249, 250))
+        bar_w = width - self.CARD_PADDING * 2
+
+        # 逐段计算高度
+        blocks: list[tuple[Any, int, str]] = []
+        total_h = self.HEADER_H + self.CARD_PADDING
+        for detection in items:
+            provider_line = f"检测来源：{detection.provider}"
+            if detection.fallback_note:
+                provider_line += f"（{detection.fallback_note}）"
+            block_h = 30  # provider 行
+            if detection.failed:
+                block_h += 44
+            else:
+                block_h += 52 + 34 + 30
+                if detection.verdict == "ai" and detection.generator:
+                    block_h += 34
+            blocks.append((detection, block_h, provider_line))
+            total_h += block_h + 16
+        total_h += 180 + 12 if source_image else 0
+        total_h += self.CARD_PADDING
+
+        canvas = Image.new("RGB", (width, max(total_h, 240)), (248, 249, 250))
         draw = ImageDraw.Draw(canvas)
 
         draw.rectangle([(0, 0), (width, self.HEADER_H)], fill=engine_color)
@@ -368,60 +399,82 @@ class ResultCardRenderer:
         draw.text(((width - tw) // 2, 18), title, font=self.title, fill=(255, 255, 255))
 
         y = self.HEADER_H + self.CARD_PADDING
-        draw.text(
-            (self.CARD_PADDING, y),
-            _strip_emoji(provider_line),
-            font=self.small,
-            fill=(120, 120, 120),
-        )
-        y += 30
-        draw.text(
-            (self.CARD_PADDING, y),
-            detection.verdict_text(),
-            font=self.title,
-            fill=verdict_color,
-        )
-        y += 52
-        if not failed:
+        for det, _block_h, provider_line in blocks:
+            color = _hex_to_rgb(_tone_color_hex(det.tone()))
             draw.text(
                 (self.CARD_PADDING, y),
-                f"AI 生成概率：{detection.probability_text()}",
-                font=self.body,
-                fill=(75, 85, 99),
+                _strip_emoji(provider_line),
+                font=self.small,
+                fill=(120, 120, 120),
             )
-            y += 34
-            if detection.ai_probability is not None:
-                try:
-                    percent = max(0.0, min(1.0, float(detection.ai_probability)))
-                    bar_w = width - self.CARD_PADDING * 2
-                    draw.rounded_rectangle(
-                        [(self.CARD_PADDING, y), (self.CARD_PADDING + bar_w, y + 10)],
-                        radius=5,
-                        fill=(226, 232, 240),
-                    )
-                    fill_w = int(bar_w * percent)
-                    if fill_w > 0:
+            y += 30
+            if det.failed:
+                err_text = _strip_emoji(f"检测失败：{det.error or '未知错误'}")
+                # 按可用宽度裁剪，避免长错误（如整段 JSON）画出卡片外
+                while err_text and draw.textlength(err_text, font=self.body) > bar_w:
+                    err_text = err_text[:-2]
+                draw.text(
+                    (self.CARD_PADDING, y),
+                    err_text,
+                    font=self.body,
+                    fill=(185, 28, 28),
+                )
+                y += 44
+            else:
+                draw.text(
+                    (self.CARD_PADDING, y),
+                    det.verdict_text(),
+                    font=self.title,
+                    fill=color,
+                )
+                y += 52
+                draw.text(
+                    (self.CARD_PADDING, y),
+                    f"AI 生成概率：{det.probability_text()}",
+                    font=self.body,
+                    fill=(75, 85, 99),
+                )
+                y += 34
+                if det.ai_probability is not None:
+                    try:
+                        percent = max(0.0, min(1.0, float(det.ai_probability)))
                         draw.rounded_rectangle(
                             [
                                 (self.CARD_PADDING, y),
-                                (self.CARD_PADDING + fill_w, y + 10),
+                                (self.CARD_PADDING + bar_w, y + 10),
                             ],
                             radius=5,
-                            fill=verdict_color,
+                            fill=(226, 232, 240),
                         )
-                except (TypeError, ValueError):
-                    pass
-                y += 30
-        for line in lines:
-            draw.text(
-                (self.CARD_PADDING, y),
-                _strip_emoji(line),
-                font=self.body,
-                fill=(75, 85, 99),
+                        fill_w = int(bar_w * percent)
+                        if fill_w > 0:
+                            draw.rounded_rectangle(
+                                [
+                                    (self.CARD_PADDING, y),
+                                    (self.CARD_PADDING + fill_w, y + 10),
+                                ],
+                                radius=5,
+                                fill=color,
+                            )
+                    except (TypeError, ValueError):
+                        pass
+                    y += 30
+                if det.verdict == "ai" and det.generator:
+                    draw.text(
+                        (self.CARD_PADDING, y),
+                        _strip_emoji(f"疑似生成器：{det.generator}"),
+                        font=self.body,
+                        fill=(75, 85, 99),
+                    )
+                    y += 34
+            y += 16
+            draw.line(
+                [(self.CARD_PADDING, y - 8), (width - self.CARD_PADDING, y - 8)],
+                fill=(235, 238, 243),
+                width=1,
             )
-            y += 34
         if source_image:
-            self._draw_source_thumb(canvas, source_image, y + 8)
+            self._draw_source_thumb(canvas, source_image, y + 4)
         return canvas
 
     def _calc_height(

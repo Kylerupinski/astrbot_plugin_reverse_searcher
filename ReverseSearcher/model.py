@@ -58,6 +58,7 @@ class BaseSearchModel:
         aiornot_timeout: float = 20,
         illuminarty_enabled: bool = False,
         illuminarty_timeout: float = 60,
+        ai_detect_mode: str = "fallback",
     ):
         """
         初始化搜索模型
@@ -69,10 +70,12 @@ class BaseSearchModel:
             default_params: 各引擎的默认参数（含 yandex/ehentai 的 cookies）
             allow_third_party_image_host: 是否允许把本地图上传到第三方临时图床（Google/Yandex 本地图搜需要）
             result_image_size: 结果配图档位（low/standard/original）
-            aiornot_api_key: AI or Not 的 API Key（留空表示不启用该主检测）
+            aiornot_api_key: AI or Not 的 API Key（留空表示不启用该通道）
             aiornot_timeout: AI or Not 检测超时（秒）
-            illuminarty_enabled: 是否启用 Illuminarty 免费备用检测
+            illuminarty_enabled: 是否启用 Illuminarty 通道
             illuminarty_timeout: Illuminarty 检测超时（秒）
+            ai_detect_mode: 多通道协作方式：``fallback``（AI or Not 失败才用 Illuminarty）/
+                ``both``（两个通道同时检测，结果分别展示）
         """
         self.proxies = proxies
         self.cookies = cookies
@@ -87,6 +90,8 @@ class BaseSearchModel:
         self.illuminarty_detector = IlluminartyDetector(
             enabled=illuminarty_enabled, timeout=illuminarty_timeout
         )
+        mode = str(ai_detect_mode or "fallback").strip().lower()
+        self.ai_detect_mode = "both" if mode == "both" else "fallback"
 
     @property
     def ai_detect_available(self) -> bool:
@@ -224,14 +229,16 @@ class BaseSearchModel:
             ValueError: 当API不支持或参数错误时抛出
         """
         if api == "ai":
-            # 纯 AI 生成检测：不做反向搜索
+            # 纯 AI 生成检测：不做反向搜索（可能返回多个通道的结果）
             image = file
             if kwargs.get("base64"):
                 image = base64.b64decode(kwargs["base64"])
             if url and not await asyncio.to_thread(is_safe_image_ref, url):
                 raise ValueError("图片地址不安全：仅支持公网图片 URL 或消息内图片")
-            detection = await self.detect_ai(file=image, url=url, require_enabled=True)
-            return detection.text_block()
+            detections = await self.detect_ai_all(
+                file=image, url=url, require_enabled=True
+            )
+            return "\n\n".join(item.text_block() for item in detections)
         if api not in ENGINE_MAP:
             available = ", ".join(ENGINE_MAP.keys())
             raise ValueError(f"不支持的引擎: {api}，支持的引擎: {available}")
@@ -337,9 +344,11 @@ class BaseSearchModel:
         返回:
             Image.Image: 渲染后的结果图像
         """
-        # AI 检测引擎：不做反向搜索，只检测图片是否为 AI 生成
+        # AI 检测引擎：不做反向搜索，只检测图片是否为 AI 生成（可能多个通道）
         if api == "ai":
-            detection = await self.detect_ai(file=file, url=url, require_enabled=True)
+            detections = await self.detect_ai_all(
+                file=file, url=url, require_enabled=True
+            )
             source_image = None
             try:
                 source_image = await self._load_source_image(
@@ -347,7 +356,7 @@ class BaseSearchModel:
                 )
             except Exception as exc:
                 logger.debug(f"[ReverseSearcher] AI 检测源图加载失败: {exc}")
-            return await self.draw_ai_result(api, detection, source_image)
+            return await self.draw_ai_result(api, detections, source_image)
 
         # 未知引擎先拦下，避免白跑一次 AI 检测
         if api not in ENGINE_MAP:
@@ -447,67 +456,139 @@ class BaseSearchModel:
         url: str | None = None,
         require_enabled: bool = False,
     ) -> AIDetectionResult | None:
-        """检测图片是否为 AI 生成
+        """检测图片是否为 AI 生成（返回单个结果）
 
-        检测链：AI or Not（配置了 Key 时）→ Illuminarty（启用备用时）。
-        前者失败（额度用完 / Key 无效 / 超时）会自动切到后者；
-        两者都失败或都未配置时返回带 error 的结果（不抛异常）。
+        多通道时按配置模式执行（见 :meth:`detect_ai_all`），这里只取第一个成功的结果；
+        全部通道失败时返回第一个错误结果，未启用时返回 None。
+        """
+        results = await self.detect_ai_all(
+            file=file, url=url, require_enabled=require_enabled
+        )
+        for result in results:
+            if not result.failed:
+                return result
+        return results[0] if results else None
+
+    async def detect_ai_all(
+        self,
+        file: FileContent = None,
+        url: str | None = None,
+        require_enabled: bool = False,
+    ) -> list[AIDetectionResult]:
+        """对图片执行 AI 生成检测，返回各通道的结果列表
+
+        - ``fallback`` 模式：AI or Not 优先，失败（额度/Key/超时）才用 Illuminarty；
+          成功时只返回一条结果（带 ``fallback_note``）；全部失败时返回各通道的错误。
+        - ``both`` 模式：两个通道**同时**检测，成功与失败的结果都会返回（便于对比/展示）。
+        - 任何通道返回错误都会以 WARNING 级别写入日志（含通道名与错误内容）。
 
         参数:
             file: 本地图片（bytes 或路径）
             url: 图片 URL（file 为空时使用）
-            require_enabled: 为 True 且未启用任何检测来源时返回错误结果（供 ai 引擎提示）
+            require_enabled: 为 True 且未启用任何通道时返回错误结果（供 ai 引擎提示）
 
         返回:
-            Optional[AIDetectionResult]: 未启用且非必需时返回 None；否则返回检测结果
+            list[AIDetectionResult]: 检测结果（可能为空列表）
         """
         if not self.ai_detect_available:
             if not require_enabled:
-                return None
-            return AIDetectionResult(
-                verdict="error",
-                error="AI 检测未启用：请在配置中开启 AI or Not（需 API Key）或 Illuminarty",
-            )
+                return []
+            return [
+                AIDetectionResult(
+                    verdict="error",
+                    error="AI 检测未启用：请在配置中开启 AI or Not（需 API Key）或 Illuminarty",
+                )
+            ]
 
         image = await self._read_image_bytes(file)
         if not image and url:
             image = await self._download_image_bytes(url)
         if not image:
-            return AIDetectionResult(verdict="error", error="无法读取图片内容")
+            return [AIDetectionResult(verdict="error", error="无法读取图片内容")]
 
         network_kwargs = self._network_kwargs()
-        errors: list[str] = []
+        if self.ai_detect_mode == "both":
+            return await self._detect_ai_both(image, network_kwargs)
+        return await self._detect_ai_fallback(image, network_kwargs)
+
+    async def _detect_ai_both(
+        self, image: bytes, network_kwargs: dict
+    ) -> list[AIDetectionResult]:
+        """两个通道并发检测（AI or Not + Illuminarty）"""
+        jobs: list[tuple[str, Any]] = []
+        if self.ai_detector.enabled:
+            jobs.append(("AI or Not", self.ai_detector.detect(image, network_kwargs)))
+        if self.illuminarty_detector.enabled:
+            jobs.append(
+                ("Illuminarty", self.illuminarty_detector.detect(image, network_kwargs))
+            )
+        if not jobs:
+            return []
+
+        raw_results = await asyncio.gather(
+            *(job for _, job in jobs), return_exceptions=True
+        )
+        results: list[AIDetectionResult] = []
+        for (provider, _), raw in zip(jobs, raw_results):
+            if isinstance(raw, BaseException):
+                result = AIDetectionResult(
+                    verdict="error",
+                    provider=provider,
+                    error=f"请求异常（{type(raw).__name__}）",
+                )
+            else:
+                result = raw
+            if result.failed:
+                self._warn_channel_failure(result)
+            results.append(result)
+        return results
+
+    async def _detect_ai_fallback(
+        self, image: bytes, network_kwargs: dict
+    ) -> list[AIDetectionResult]:
+        """AI or Not → Illuminarty 顺序回退"""
+        errors: list[AIDetectionResult] = []
 
         if self.ai_detector.enabled:
             result = await self.ai_detector.detect(image, network_kwargs)
             if not result.failed:
-                return result
-            errors.append(f"AI or Not：{result.error}")
-            logger.info(
-                f"[ReverseSearcher] AI or Not 检测失败，尝试备用: {result.error}"
-            )
+                return [result]
+            self._warn_channel_failure(result)
+            errors.append(result)
 
         if self.illuminarty_detector.enabled:
             result = await self.illuminarty_detector.detect(image, network_kwargs)
             if not result.failed:
                 if errors:
                     result.fallback_note = "AI or Not 不可用，已自动切换备用"
-                return result
-            errors.append(f"Illuminarty：{result.error}")
-            return AIDetectionResult(
-                verdict="error",
-                provider="Illuminarty",
-                error="；".join(errors),
-            )
+                return [result]
+            self._warn_channel_failure(result)
+            errors.append(result)
 
-        return AIDetectionResult(verdict="error", error="；".join(errors))
+        return errors or [
+            AIDetectionResult(verdict="error", error="没有可用的 AI 检测通道")
+        ]
+
+    @staticmethod
+    def _warn_channel_failure(result: AIDetectionResult) -> None:
+        """某个 AI 检测通道不可用时的控制台告警（含通道名与错误内容）"""
+        logger.warning(
+            f"[ReverseSearcher] AI 检测通道不可用：{result.provider} 返回错误："
+            f"{result.error or '未知错误'}"
+        )
 
     async def _precheck_ai(
         self, file: FileContent = None, url: str | None = None
     ) -> list[dict]:
-        """搜图前的 AI 生成检测，返回卡片徽章列表（未启用时为空）"""
-        detection = await self.detect_ai(file=file, url=url)
-        return [detection.badge()] if detection else []
+        """搜图前的 AI 生成检测，返回卡片徽章列表（未启用时为空）
+
+        多通道都成功时每个通道一枚徽章；全部失败时展示第一条错误。
+        """
+        results = await self.detect_ai_all(file=file, url=url)
+        if not results:
+            return []
+        badges = [result.badge() for result in results if not result.failed]
+        return badges or [results[0].badge()]
 
     @staticmethod
     def _animetrace_badges(response: Any) -> list[dict]:
@@ -696,15 +777,13 @@ class BaseSearchModel:
         """
         label = self._engine_label(api)
 
-        # AI 检测引擎：不做反向搜索，只返回检测结论
+        # AI 检测引擎：不做反向搜索，只返回检测结论（可能多个通道）
         if api == "ai":
-            detection = await self.detect_ai(file=file, url=url, require_enabled=True)
-            return [
-                {
-                    "text": f"🔍「{label}」\n\n{detection.text_block()}",
-                    "image": None,
-                }
-            ]
+            detections = await self.detect_ai_all(
+                file=file, url=url, require_enabled=True
+            )
+            body = "\n\n".join(item.text_block() for item in detections)
+            return [{"text": f"🔍「{label}」\n\n{body}", "image": None}]
 
         # 未知引擎先拦下，避免白跑一次 AI 检测
         if api not in ENGINE_MAP:
@@ -845,19 +924,27 @@ class BaseSearchModel:
     async def draw_ai_result(
         self,
         api: str,
-        detection: AIDetectionResult,
+        detections: list[AIDetectionResult] | AIDetectionResult,
         source_image: Image.Image | None = None,
     ) -> Image.Image:
-        """绘制「AI 检测」结果卡片（HTML 优先，失败降级 PIL）"""
+        """绘制「AI 检测」结果卡片（HTML 优先，失败降级 PIL）
+
+        参数:
+            detections: 一个或多个通道的检测结果（both 模式下会有多条）
+        """
+        if isinstance(detections, AIDetectionResult):
+            detections = [detections]
         renderer = ResultCardRenderer()
         try:
-            img_path = await renderer.render_ai_html_async(api, detection, source_image)
+            img_path = await renderer.render_ai_html_async(
+                api, detections, source_image
+            )
             if img_path:
                 return await asyncio.to_thread(Image.open, img_path)
         except Exception:
             pass
         return await asyncio.to_thread(
-            renderer.render_ai_pil, api, detection, source_image
+            renderer.render_ai_pil, api, detections, source_image
         )
 
     def _draw_results_pil(

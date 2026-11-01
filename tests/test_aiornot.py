@@ -211,10 +211,10 @@ class TestModelIntegration:
     def test_ai_engine_text_mode(self, monkeypatch):
         model = _model(aiornot_api_key="key")
 
-        async def fake_detect(file=None, url=None, require_enabled=False):
-            return AIDetectionResult(verdict="ai", ai_probability=0.88)
+        async def fake_detect_all(file=None, url=None, require_enabled=False):
+            return [AIDetectionResult(verdict="ai", ai_probability=0.88)]
 
-        monkeypatch.setattr(model, "detect_ai", fake_detect)
+        monkeypatch.setattr(model, "detect_ai_all", fake_detect_all)
         messages = asyncio.run(model.search_text_messages(api="ai", file=_png_bytes()))
         assert len(messages) == 1
         assert "「AI 检测」" in messages[0]["text"]
@@ -229,10 +229,10 @@ class TestModelIntegration:
     def test_ai_engine_search_returns_text(self, monkeypatch):
         model = _model(aiornot_api_key="key")
 
-        async def fake_detect(file=None, url=None, require_enabled=False):
-            return AIDetectionResult(verdict="human", ai_probability=0.02)
+        async def fake_detect_all(file=None, url=None, require_enabled=False):
+            return [AIDetectionResult(verdict="human", ai_probability=0.02)]
 
-        monkeypatch.setattr(model, "detect_ai", fake_detect)
+        monkeypatch.setattr(model, "detect_ai_all", fake_detect_all)
         text = asyncio.run(model.search(api="ai", file=_png_bytes()))
         assert "判定：非 AI 生成" in text
 
@@ -291,14 +291,14 @@ class TestModelIntegration:
         model = _model(aiornot_api_key="key")
         captured = {}
 
-        async def fake_detect(file=None, url=None, require_enabled=False):
-            return AIDetectionResult(verdict="ai", ai_probability=0.7)
+        async def fake_detect_all(file=None, url=None, require_enabled=False):
+            return [AIDetectionResult(verdict="ai", ai_probability=0.7)]
 
-        async def fake_draw_ai(api, detection, source_image=None):
-            captured["verdict"] = detection.verdict
+        async def fake_draw_ai(api, detections, source_image=None):
+            captured["verdict"] = detections[0].verdict
             return Image.new("RGB", (10, 10))
 
-        monkeypatch.setattr(model, "detect_ai", fake_detect)
+        monkeypatch.setattr(model, "detect_ai_all", fake_detect_all)
         monkeypatch.setattr(model, "draw_ai_result", fake_draw_ai)
         asyncio.run(model.search_and_draw(api="ai", file=_png_bytes()))
         assert captured["verdict"] == "ai"
