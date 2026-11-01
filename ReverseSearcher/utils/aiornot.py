@@ -54,6 +54,8 @@ class AIDetectionResult:
     verdict: str = "unknown"  # ai / human / unknown / error
     ai_probability: float | None = None
     generator: str = ""
+    provider: str = "AI or Not"
+    fallback_note: str = ""
     error: str = ""
 
     @property
@@ -75,13 +77,13 @@ class AIDetectionResult:
             reason = (self.error or "未知错误").strip()
             if len(reason) > 80:
                 reason = reason[:77] + "..."
-            return f"AI 检测失败：{reason}"
+            return f"{self.provider} 检测失败：{reason}"
 
         verdict_cn = _VERDICT_TEXT.get(self.verdict, _VERDICT_TEXT["unknown"])[1]
         percent = self._percent()
         if self.verdict == "unknown":
-            return "AI or Not：无法判定（可能画质过低）"
-        text = f"AI or Not：{verdict_cn}"
+            return f"{self.provider}：无法判定（可能画质过低）"
+        text = f"{self.provider}：{verdict_cn}"
         if percent:
             text += f"，AI 生成概率 {percent}"
         if self.verdict == "ai" and self.generator:
@@ -115,7 +117,9 @@ class AIDetectionResult:
         if self.failed:
             return self.text_line()
         lines = [
-            "🤖 AI or Not 检测结果",
+            "🤖 AI 生成检测结果",
+            f"检测来源：{self.provider}"
+            + (f"（{self.fallback_note}）" if self.fallback_note else ""),
             f"判定：{self.verdict_text()}",
             f"AI 生成概率：{self.probability_text()}",
         ]

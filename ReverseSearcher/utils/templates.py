@@ -372,7 +372,7 @@ AI_RESULT_TMPL = """<!DOCTYPE html>
   <div class="card">
     <div class="header">
       <div class="header-title">「{{ engine_label }}」AI 生成检测</div>
-      <div class="header-sub">图片未做反向搜索 · 检测由 AI or Not 提供</div>
+      <div class="header-sub">图片未做反向搜索 · 检测由 {{ provider }} 提供{% if fallback_note %}（{{ fallback_note }}）{% endif %}</div>
     </div>
     {% if error %}
     <div class="error">{{ error }}</div>

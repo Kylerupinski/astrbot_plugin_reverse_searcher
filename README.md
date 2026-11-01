@@ -27,7 +27,7 @@
 | 特性 | 说明 |
 |------|------|
 | **五大搜索引擎** | AnimeTrace 认角色、SauceNAO 找出处、Google Lens 综合兜底、Yandex 找相似、E-Hentai 搜本子，各司其职 |
-| **AI 生成检测** | 接入 [AI or Not](https://www.aiornot.com/)，每次识图前先判断图片是否为 AI 生成（徽章/文本展示）；也可用 `ai` 引擎只检测不反搜 |
+| **AI 生成检测** | 接入 [AI or Not](https://www.aiornot.com/)，每次识图前先判断图片是否为 AI 生成（徽章/文本展示）；额度用完自动切到免费的 Illuminarty 备用，也可用 `ai` 引擎只检测不反搜 |
 | **关键词触发** | 发送 `以图搜图` + 图片即可搜索，支持引擎别名快捷指定（`a`/`s`/`e`/`g`/`y`） |
 | **LLM 主动搜图** | 机器人根据对话意图自主判断何时搜图、用哪个引擎，无需手动指令 |
 | **意图路由** | 基于关键词加权匹配自动选择最优引擎——说「这是谁」自动走 AnimeTrace |
@@ -106,7 +106,7 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
 | **ehentai** | E-Hentai 同人本搜索 | 免配置（ExHentai 需 Cookie） |
 | **saucenao** | 综合出处搜索，Pixiv 插画首选 | 建议配 `api_key` |
 | **google** | Google Lens 综合兜底 | 需 SerpAPI Key |
-| **ai** | AI 生成检测：判断图片是不是 AI 画的，**不做反向搜索** | 需 AI or Not API Key |
+| **ai** | AI 生成检测：判断图片是不是 AI 画的，**不做反向搜索** | 需 AI or Not API Key 或启用 Illuminarty 备用 |
 
 ---
 
@@ -132,6 +132,17 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
 | `timeout` | int | `20` | 检测超时（秒）；超时自动跳过，不影响正常搜图 |
 
 > 接口说明：插件调用 `POST https://api.aiornot.com/v2/image/sync`（`only=ai_generated`，避免 deepfake 等额外计费），只上传图片、不做反向搜索。启用后会把图片发送给 AI or Not，请自行评估隐私与费用。
+
+### AI 生成检测备用 `illuminarty`
+
+AI or Not 免费额度只有 20 张且**不按月重置**，额度用完后会自动切换到 Illuminarty 的免费检测（也可以在没配 AI or Not 时单独使用）。
+
+| 配置项 | 类型 | 默认 | 说明 |
+|--------|------|------|------|
+| `enabled` | bool | `false` | 是否启用 Illuminarty 备用检测 |
+| `timeout` | int | `60` | 检测超时（秒），该接口偶尔偏慢 |
+
+> 实现方式：直接请求 `app.illuminarty.ai` 主页上传图片时所用的接口 `POST /api/analysis/image`（multipart `file`，返回 `data.probability`），**不需要安装浏览器/Playwright**。注意这是该网站未公开的网页接口，可能随时变更或被限流；失败时插件会如实提示，不影响正常搜图。单图限制 3MB / png·jpg·webp，插件会自动压缩转换。
 
 ### 超时配置 `timeout_settings`
 
@@ -169,7 +180,7 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
 
 > **隐私披露：本地图会上传第三方图床**——使用**本地图片**搜 **Google / Yandex** 时，插件需把图片先上传到临时图床（按顺序尝试 `uguu.se` / `x0.at` / `pomf.lain.la` / `litterbox.catbox.moe` / `tmpfiles.org`）再以 URL 形式搜索，并回读校验该直链确实返回图片。**这意味着你的图片会被上传到公网临时图床**，保留时长由第三方决定。若需关闭，将 `allow_third_party_image_host` 设为 `false`（此时这两引擎不可用本地图搜，需改用图片 URL 或换用其他引擎）。
 >
-> **隐私披露：AI 检测会上传图片**——启用 `aiornot` 后，每次识图都会把图片发送给 AI or Not（`api.aiornot.com`）做 AI 生成检测，并按对方规则计费。关闭 `aiornot.enabled` 即可完全停止上传。
+> **隐私披露：AI 检测会上传图片**——启用 `aiornot` 后，每次识图都会把图片发送给 AI or Not（`api.aiornot.com`）做 AI 生成检测，并按对方规则计费；启用 `illuminarty` 后，AI or Not 失败时会把图片发送给 Illuminarty（`app.illuminarty.ai`）。关闭这两个开关即可完全停止上传。
 
 ### 快速配置模板
 
@@ -185,6 +196,10 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
     "enabled": false,
     "api_key": "",
     "timeout": 20
+  },
+  "illuminarty": {
+    "enabled": false,
+    "timeout": 60
   },
   "timeout_settings": {
     "search_params_timeout": 30

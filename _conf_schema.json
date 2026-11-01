@@ -63,6 +63,25 @@
             }
         }
     },
+    "illuminarty": {
+        "description": "AI 生成检测备用（Illuminarty）",
+        "type": "object",
+        "hint": "免费、无需 API Key：调用 app.illuminarty.ai 主页使用的识别接口。AI or Not 额度用完/报错时会自动切换；未配置 AI or Not 时也可单独使用。注意这是该网站未公开的网页接口，可能变更或限流",
+        "items": {
+            "enabled": {
+                "description": "启用 Illuminarty 备用检测",
+                "type": "bool",
+                "hint": "图片会先发给 AI or Not（若已配置），失败后再发给 Illuminarty；两者都失败则不带 AI 结果",
+                "default": false
+            },
+            "timeout": {
+                "description": "Illuminarty 检测超时（秒）",
+                "type": "int",
+                "hint": "该接口偶尔较慢，建议 40~90 秒",
+                "default": 60
+            }
+        }
+    },
     "allow_third_party_image_host": {
         "description": "允许上传到第三方图床",
         "type": "bool",

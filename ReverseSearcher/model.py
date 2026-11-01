@@ -11,6 +11,7 @@ from astrbot.api import logger
 from .engine_registry import ENGINE_REGISTRY, inject_request_classes
 from .utils import Network
 from .utils.aiornot import AIorNotDetector, AIDetectionResult
+from .utils.illuminarty import IlluminartyDetector
 from .utils.render_card import ResultCardRenderer
 from .utils.security import is_safe_image_ref, is_safe_image_url
 from .utils.types import FileContent
@@ -55,6 +56,8 @@ class BaseSearchModel:
         result_image_size: str = "standard",
         aiornot_api_key: str = "",
         aiornot_timeout: float = 20,
+        illuminarty_enabled: bool = False,
+        illuminarty_timeout: float = 60,
     ):
         """
         初始化搜索模型
@@ -66,8 +69,10 @@ class BaseSearchModel:
             default_params: 各引擎的默认参数（含 yandex/ehentai 的 cookies）
             allow_third_party_image_host: 是否允许把本地图上传到第三方临时图床（Google/Yandex 本地图搜需要）
             result_image_size: 结果配图档位（low/standard/original）
-            aiornot_api_key: AI or Not 的 API Key（留空表示不启用 AI 检测）
+            aiornot_api_key: AI or Not 的 API Key（留空表示不启用该主检测）
             aiornot_timeout: AI or Not 检测超时（秒）
+            illuminarty_enabled: 是否启用 Illuminarty 免费备用检测
+            illuminarty_timeout: Illuminarty 检测超时（秒）
         """
         self.proxies = proxies
         self.cookies = cookies
@@ -79,6 +84,14 @@ class BaseSearchModel:
             size if size in self.IMAGE_SIZE_PROFILES else "standard"
         )
         self.ai_detector = AIorNotDetector(aiornot_api_key, timeout=aiornot_timeout)
+        self.illuminarty_detector = IlluminartyDetector(
+            enabled=illuminarty_enabled, timeout=illuminarty_timeout
+        )
+
+    @property
+    def ai_detect_available(self) -> bool:
+        """是否配置了任一 AI 检测来源（AI or Not 或 Illuminarty）"""
+        return self.ai_detector.enabled or self.illuminarty_detector.enabled
 
     def _prepare_engine_params(self, api: str, search_params: dict) -> dict:
         """从搜索参数中提取引擎专属配置。
@@ -403,7 +416,7 @@ class BaseSearchModel:
                 api, detail[:200] or "搜索失败", ai_badges=ai_badges
             )
 
-    # ── AI 生成检测（AI or Not）─────────────────────────────────
+    # ── AI 生成检测（AI or Not 主 + Illuminarty 备用）────────────
 
     async def _read_image_bytes(self, file: FileContent) -> bytes | None:
         """读取本地图片字节（bytes 或路径）"""
@@ -434,23 +447,26 @@ class BaseSearchModel:
         url: str | None = None,
         require_enabled: bool = False,
     ) -> AIDetectionResult | None:
-        """调用 AI or Not 检测图片是否为 AI 生成
+        """检测图片是否为 AI 生成
+
+        检测链：AI or Not（配置了 Key 时）→ Illuminarty（启用备用时）。
+        前者失败（额度用完 / Key 无效 / 超时）会自动切到后者；
+        两者都失败或都未配置时返回带 error 的结果（不抛异常）。
 
         参数:
             file: 本地图片（bytes 或路径）
             url: 图片 URL（file 为空时使用）
-            require_enabled: 为 True 且未配置 API Key 时返回错误结果（供 ai 引擎提示）
+            require_enabled: 为 True 且未启用任何检测来源时返回错误结果（供 ai 引擎提示）
 
         返回:
             Optional[AIDetectionResult]: 未启用且非必需时返回 None；否则返回检测结果
-            （失败也返回带 error 的结果，不抛异常）
         """
-        if not self.ai_detector.enabled:
+        if not self.ai_detect_available:
             if not require_enabled:
                 return None
             return AIDetectionResult(
                 verdict="error",
-                error="AI 检测未启用：请在配置中开启 AI or Not 并填写 API Key",
+                error="AI 检测未启用：请在配置中开启 AI or Not（需 API Key）或 Illuminarty",
             )
 
         image = await self._read_image_bytes(file)
@@ -459,7 +475,32 @@ class BaseSearchModel:
         if not image:
             return AIDetectionResult(verdict="error", error="无法读取图片内容")
 
-        return await self.ai_detector.detect(image, self._network_kwargs())
+        network_kwargs = self._network_kwargs()
+        errors: list[str] = []
+
+        if self.ai_detector.enabled:
+            result = await self.ai_detector.detect(image, network_kwargs)
+            if not result.failed:
+                return result
+            errors.append(f"AI or Not：{result.error}")
+            logger.info(
+                f"[ReverseSearcher] AI or Not 检测失败，尝试备用: {result.error}"
+            )
+
+        if self.illuminarty_detector.enabled:
+            result = await self.illuminarty_detector.detect(image, network_kwargs)
+            if not result.failed:
+                if errors:
+                    result.fallback_note = "AI or Not 不可用，已自动切换备用"
+                return result
+            errors.append(f"Illuminarty：{result.error}")
+            return AIDetectionResult(
+                verdict="error",
+                provider="Illuminarty",
+                error="；".join(errors),
+            )
+
+        return AIDetectionResult(verdict="error", error="；".join(errors))
 
     async def _precheck_ai(
         self, file: FileContent = None, url: str | None = None

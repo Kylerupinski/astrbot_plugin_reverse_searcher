@@ -44,6 +44,18 @@
         "hint": "時間内に応答がなければ AI 検出を諦めて通常の検索を続行します"
       }
     },
+    "illuminarty": {
+      "description": "AI 生成検出の予備（Illuminarty）",
+      "hint": "無料・API キー不要：app.illuminarty.ai のトップページが使う判定エンドポイントを呼び出します。AI or Not の上限切れや失敗時に自動で切り替わり、AI or Not なしでも単独で利用できます。ただし非公開のウェブ用エンドポイントのため、変更や制限の可能性があります",
+      "enabled": {
+        "description": "Illuminarty の予備検出を有効化",
+        "hint": "画像はまず AI or Not（設定時）に送られ、失敗した場合に Illuminarty へ送られます。両方失敗時は AI 結果を表示しません"
+      },
+      "timeout": {
+        "description": "Illuminarty のタイムアウト（秒）",
+        "hint": "このエンドポイントは遅いことがあるため 40〜90 秒を推奨します"
+      }
+    },
     "timeout_settings": {
       "description": "タイムアウト設定",
       "search_params_timeout": {

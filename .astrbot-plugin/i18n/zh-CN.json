@@ -44,6 +44,18 @@
         "hint": "超过该时间未返回则跳过 AI 检测，继续正常搜图"
       }
     },
+    "illuminarty": {
+      "description": "AI 生成检测备用（Illuminarty）",
+      "hint": "免费、无需 API Key：调用 app.illuminarty.ai 主页使用的识别接口。AI or Not 额度用完/报错时会自动切换；未配置 AI or Not 时也可单独使用。注意这是该网站未公开的网页接口，可能变更或限流",
+      "enabled": {
+        "description": "启用 Illuminarty 备用检测",
+        "hint": "图片会先发给 AI or Not（若已配置），失败后再发给 Illuminarty；两者都失败则不带 AI 结果"
+      },
+      "timeout": {
+        "description": "Illuminarty 检测超时（秒）",
+        "hint": "该接口偶尔较慢，建议 40~90 秒"
+      }
+    },
     "timeout_settings": {
       "description": "超时配置",
       "search_params_timeout": {

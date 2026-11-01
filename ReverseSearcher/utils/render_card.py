@@ -231,6 +231,8 @@ class ResultCardRenderer:
         data = {
             "engine_label": _engine_label(engine),
             "engine_color": _engine_color_hex(engine),
+            "provider": html.escape(detection.provider or "AI or Not"),
+            "fallback_note": html.escape(detection.fallback_note or ""),
             "verdict_text": html.escape(detection.verdict_text()),
             "probability_text": html.escape(detection.probability_text()),
             "probability_pct": probability_pct,
@@ -351,7 +353,10 @@ class ResultCardRenderer:
             lines.append(f"疑似生成器：{detection.generator}")
 
         width = self.CARD_WIDTH
-        body_h = 56 + (36 if not failed else 34 * max(1, len(lines)))
+        provider_line = f"检测来源：{detection.provider}"
+        if detection.fallback_note:
+            provider_line += f"（{detection.fallback_note}）"
+        body_h = 56 + 26 + (36 if not failed else 34 * max(1, len(lines)))
         source_h = 180 + 12 if source_image else 0
         height = self.HEADER_H + body_h + source_h + self.CARD_PADDING * 2 + 24
         canvas = Image.new("RGB", (width, height), (248, 249, 250))
@@ -363,6 +368,13 @@ class ResultCardRenderer:
         draw.text(((width - tw) // 2, 18), title, font=self.title, fill=(255, 255, 255))
 
         y = self.HEADER_H + self.CARD_PADDING
+        draw.text(
+            (self.CARD_PADDING, y),
+            _strip_emoji(provider_line),
+            font=self.small,
+            fill=(120, 120, 120),
+        )
+        y += 30
         draw.text(
             (self.CARD_PADDING, y),
             detection.verdict_text(),

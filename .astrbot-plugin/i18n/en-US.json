@@ -44,6 +44,18 @@
         "hint": "Give up AI detection after this long and continue with the normal search"
       }
     },
+    "illuminarty": {
+      "description": "AI detection fallback (Illuminarty)",
+      "hint": "Free and keyless: calls the same endpoint used by the app.illuminarty.ai homepage. It takes over when AI or Not runs out of quota or fails, and can also be used alone. Note that this is an undocumented web endpoint and may change or be rate-limited",
+      "enabled": {
+        "description": "Enable Illuminarty fallback",
+        "hint": "The image goes to AI or Not first (when configured), then to Illuminarty if that fails; when both fail no AI result is shown"
+      },
+      "timeout": {
+        "description": "Illuminarty timeout (seconds)",
+        "hint": "This endpoint can be slow; 40-90 seconds is recommended"
+      }
+    },
     "timeout_settings": {
       "description": "Timeout settings",
       "search_params_timeout": {
