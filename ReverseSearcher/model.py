@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any, ClassVar
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from astrbot.api import logger
 
 from .engine_registry import ENGINE_REGISTRY, inject_request_classes
@@ -23,6 +23,28 @@ ENGINE_MAP: dict[str, type] = {
     for name, def_ in ENGINE_REGISTRY.items()
     if def_.req_class is not None
 }
+
+# 支持「结果图模糊（过审）」的引擎
+BLUR_ENGINES: tuple[str, ...] = ("ehentai", "soutubot")
+
+
+def collect_blur_radii(default_params: dict | None) -> dict[str, int]:
+    """从配置的 ``default_params`` 收集需要模糊结果图的引擎及其半径
+
+    返回 ``{引擎: 半径}``；半径 ``0`` 表示按图片尺寸自动计算，
+    未开启 ``blur_image`` 的引擎不会出现在结果里。
+    """
+    radii: dict[str, int] = {}
+    for engine in BLUR_ENGINES:
+        cfg = (default_params or {}).get(engine) or {}
+        if not cfg.get("blur_image"):
+            continue
+        try:
+            radius = int(cfg.get("blur_radius", 0) or 0)
+        except (TypeError, ValueError):
+            radius = 0
+        radii[engine] = max(0, radius)
+    return radii
 
 
 class BaseSearchModel:
@@ -46,6 +68,10 @@ class BaseSearchModel:
         "original": (4096, 92),
     }
 
+    # 结果图模糊（过审）自动半径：按图片短边 1/8 计算，并限制在下列区间
+    AUTO_BLUR_MIN = 12
+    AUTO_BLUR_MAX = 40
+
     def __init__(
         self,
         proxies: str | None = None,
@@ -59,6 +85,8 @@ class BaseSearchModel:
         illuminarty_enabled: bool = False,
         illuminarty_timeout: float = 60,
         ai_detect_mode: str = "fallback",
+        blur_radii: dict[str, int] | None = None,
+        cf_solver: Any = None,
     ):
         """
         初始化搜索模型
@@ -76,6 +104,9 @@ class BaseSearchModel:
             illuminarty_timeout: Illuminarty 检测超时（秒）
             ai_detect_mode: 多通道协作方式：``fallback``（AI or Not 失败才用 Illuminarty）/
                 ``both``（两个通道同时检测，结果分别展示）
+            blur_radii: 需要模糊结果图的引擎 → 模糊半径；0 表示自动（按图片尺寸计算）
+            cf_solver: 全局 Cloudflare 过盾客户端（``utils.cloudflare.FlareSolverrClient``），
+                传给所有引擎，需要过盾的引擎自行调用
         """
         self.proxies = proxies
         self.cookies = cookies
@@ -92,11 +123,64 @@ class BaseSearchModel:
         )
         mode = str(ai_detect_mode or "fallback").strip().lower()
         self.ai_detect_mode = "both" if mode == "both" else "fallback"
+        self.blur_radii: dict[str, int] = {}
+        for engine, radius in (blur_radii or {}).items():
+            try:
+                self.blur_radii[str(engine)] = max(0, int(radius))
+            except (TypeError, ValueError):
+                self.blur_radii[str(engine)] = 0
+        # 全局 Cloudflare 过盾客户端（任意引擎可复用）
+        self.cf_solver = cf_solver
 
     @property
     def ai_detect_available(self) -> bool:
         """是否配置了任一 AI 检测来源（AI or Not 或 Illuminarty）"""
         return self.ai_detector.enabled or self.illuminarty_detector.enabled
+
+    # ── 结果图模糊（R18 引擎过审）──────────────────────────────
+
+    def _blur_radius(self, api: str) -> int | None:
+        """该引擎配置的模糊半径；未启用返回 ``None``（半径 0 表示自动计算）"""
+        return self.blur_radii.get(str(api))
+
+    def _apply_blur_image(self, img: Image.Image, radius: int) -> Image.Image:
+        """对结果图做高斯模糊，用于规避平台对 R18 内容的审核
+
+        参数:
+            img: 结果图（缩略图或原图）
+            radius: 模糊半径；``0`` 表示按图片尺寸自动计算
+
+        返回:
+            Image.Image: 模糊后的图片（失败时原样返回）
+        """
+        if img is None:
+            return img
+        try:
+            im = img.convert("RGB")
+        except Exception:
+            return img
+        try:
+            if radius <= 0:
+                side = min(im.size) if im.size else self.AUTO_BLUR_MIN * 8
+                radius = max(self.AUTO_BLUR_MIN, min(self.AUTO_BLUR_MAX, side // 8))
+            return im.filter(ImageFilter.GaussianBlur(float(radius)))
+        except Exception as exc:
+            logger.debug(f"[ReverseSearcher] 结果图模糊失败，使用原图: {exc}")
+            return img
+
+    async def _blur_items_inplace(self, api: str, items: list[dict]) -> None:
+        """就地把卡片结果里的缩略图模糊（仅对配置了模糊的引擎生效）"""
+        radius = self._blur_radius(api)
+        if radius is None or not items:
+            return
+
+        def _run() -> None:
+            for item in items:
+                thumb = item.get("thumbnail_image")
+                if thumb is not None:
+                    item["thumbnail_image"] = self._apply_blur_image(thumb, radius)
+
+        await asyncio.to_thread(_run)
 
     def _prepare_engine_params(self, api: str, search_params: dict) -> dict:
         """从搜索参数中提取引擎专属配置。
@@ -126,6 +210,9 @@ class BaseSearchModel:
                 "exp": search_params.pop("exp", False),
                 "cookies": search_params.pop("cookies", None),
             }
+            # 模糊相关配置由 model 渲染层读取，不传给引擎
+            search_params.pop("blur_image", None)
+            search_params.pop("blur_radius", None)
         elif api == "saucenao":
             engine_params = {
                 "api_key": search_params.pop("api_key", None),
@@ -162,6 +249,20 @@ class BaseSearchModel:
                 "use_ru_fallback": search_params.get("use_ru_fallback", True),
                 "cookies": search_params.pop("cookies", None),
             }
+        elif api == "soutubot":
+            engine_params = {
+                "factor": search_params.pop("factor", 1.2),
+                "metadata_mode": search_params.pop("metadata_mode", "display"),
+                "max_results": search_params.pop("max_results", 10),
+                "cookies": search_params.pop("cookies", None),
+                "user_agent": search_params.pop("user_agent", ""),
+            }
+            # 旧版把 FlareSolverr 配在引擎里，现已迁移到顶层；丢弃残留键
+            search_params.pop("flaresolverr", None)
+            search_params.pop("flaresolverr_timeout", None)
+            # 模糊相关配置由 model 渲染层读取，不传给引擎
+            search_params.pop("blur_image", None)
+            search_params.pop("blur_radius", None)
 
         return engine_params
 
@@ -311,7 +412,9 @@ class BaseSearchModel:
             )
 
         async with Network(**network_kwargs) as network:
-            engine_instance = engine_class(network=network, **engine_params)
+            engine_instance = engine_class(
+                network=network, cf_solver=self.cf_solver, **engine_params
+            )
             # animetrace 特殊路径：传 base64 + model 参数
             if api == "animetrace" and search_params.get("base64"):
                 response = await engine_instance.search(
@@ -413,6 +516,8 @@ class BaseSearchModel:
 
             # AnimeTrace 自带的 AI 检测与 AI or Not 结果一起展示
             ai_badges = [*ai_badges, *self._animetrace_badges(response)]
+            # R18 引擎（E-Hentai / Soutubot）：按配置模糊结果缩略图以过审
+            await self._blur_items_inplace(api, items)
             return await self.draw_results(
                 api, items, source_image, ai_badges=ai_badges
             )
@@ -677,20 +782,30 @@ class BaseSearchModel:
             return None
 
     async def _entry_image_bytes(
-        self, client: Network, entry: dict, source_image: Image.Image | None
+        self,
+        client: Network,
+        entry: dict,
+        source_image: Image.Image | None,
+        api: str = "",
     ) -> bytes | None:
         """获取单条结果配图（按配置档位决定分辨率与原图优先）
 
         优先按检测框裁剪源图（AnimeTrace）；否则下载结果图：
         ``original`` 档位优先取引擎的原始大图（`full_image`），其余档位优先缩略图，
         任一 URL 失败时自动尝试另一个，全部失败返回 None。
+        ``api`` 对应的引擎若开启了结果图模糊，则在编码前先做高斯模糊（过审）。
         """
         max_side, quality = self.IMAGE_SIZE_PROFILES[self.result_image_size]
+        blur_radius = self._blur_radius(api) if api else None
 
         crop = self._crop_thumbnail(
             source_image, entry.get("crop_box"), max_size=max_side
         )
         if crop is not None:
+            if blur_radius is not None:
+                crop = await asyncio.to_thread(
+                    self._apply_blur_image, crop, blur_radius
+                )
             return await asyncio.to_thread(
                 self._encode_image_bytes, crop, quality, max_side
             )
@@ -707,6 +822,10 @@ class BaseSearchModel:
             image = await self._download_thumbnail(client, url)
             if image is None:
                 continue
+            if blur_radius is not None:
+                image = await asyncio.to_thread(
+                    self._apply_blur_image, image, blur_radius
+                )
             data = await asyncio.to_thread(
                 self._encode_image_bytes, image, quality, max_side
             )
@@ -845,7 +964,9 @@ class BaseSearchModel:
 
         async with Network(**network_kwargs) as client:
             for entry in entries:
-                image = await self._entry_image_bytes(client, entry, source_image)
+                image = await self._entry_image_bytes(
+                    client, entry, source_image, api=api
+                )
                 messages.append({"text": entry["text"], "image": image})
         return messages
 

@@ -26,9 +26,9 @@
 
 | 特性 | 说明 |
 |------|------|
-| **五大搜索引擎** | AnimeTrace 认角色、SauceNAO 找出处、Google Lens 综合兜底、Yandex 找相似、E-Hentai 搜本子，各司其职 |
+| **六大搜索引擎** | AnimeTrace 认角色、SauceNAO 找出处、Google Lens 综合兜底、Yandex 找相似、E-Hentai 搜本子、Soutubot 查 nhentai 图源，各司其职 |
 | **AI 生成检测** | 接入 [AI or Not](https://www.aiornot.com/)，每次识图前先判断图片是否为 AI 生成（徽章/文本展示）；额度用完自动切到免费的 Illuminarty 备用，也可用 `ai` 引擎只检测不反搜 |
-| **关键词触发** | 发送 `以图搜图` + 图片即可搜索，支持引擎别名快捷指定（`a`/`s`/`e`/`g`/`y`） |
+| **关键词触发** | 发送 `以图搜图` + 图片即可搜索，支持引擎别名快捷指定（`a`/`s`/`e`/`n`/`g`/`y`） |
 | **LLM 主动搜图** | 机器人根据对话意图自主判断何时搜图、用哪个引擎，无需手动指令 |
 | **意图路由** | 基于关键词加权匹配自动选择最优引擎——说「这是谁」自动走 AnimeTrace |
 | **精美结果卡片** | 搜索结果渲染为现代卡片图片（引擎色渐变 Header、相似度彩色徽章、AI 检测标签），云端文转图不可达时自动降级 PIL |
@@ -85,7 +85,7 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
 
 ### 第二步：最小配置（装好即用）
 
-**无需任何配置**即可使用 AnimeTrace、Yandex、E-Hentai 三个免 Key 引擎：
+**无需任何配置**即可使用 AnimeTrace、Yandex、E-Hentai、Soutubot 四个免 Key 引擎：
 
 1. 重启 AstrBot 后，直接发送 `以图搜图` + 图片
 2. 或直接对机器人说「帮我看看这个角色是谁」让 LLM 自动搜图
@@ -104,6 +104,7 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
 | **animetrace** | 动漫角色识别（最强），返回作品名 + 角色名 | 免配置 |
 | **yandex** | 相似图片搜索 | 建议配 Cookie（Yandex 反爬严格，未配置时可能 CAPTCHA/无结果） |
 | **ehentai** | E-Hentai 同人本搜索 | 免配置（ExHentai 需 Cookie） |
+| **soutubot** | 通过 [soutubot.moe](https://soutubot.moe/) 查 nhentai 图源（标题/作者/页数/标签/直达页码） | 免配置（站点有排队限流；失败时控制台会以 WARNING 输出状态码/响应片段便于排查） |
 | **saucenao** | 综合出处搜索，Pixiv 插画首选 | 建议配 `api_key` |
 | **google** | Google Lens 综合兜底 | 需 SerpAPI Key |
 | **ai** | AI 生成检测：判断图片是不是 AI 画的，**不做反向搜索** | 需 AI or Not API Key 或启用 Illuminarty 备用 |
@@ -123,6 +124,17 @@ AstrBot WebUI → 插件市场 → 搜索 `astrbot_plugin_reverse_searcher`
 | `enable_keyword_trigger` | bool | `true` | 关键词触发开关；关闭后仅 LLM 工具可用 |
 | `proxies` | string | `""` | 代理地址，如 `http://127.0.0.1:7890`（国内访问必填） |
 | `allow_third_party_image_host` | bool | `true` | 是否允许把本地图上传到第三方临时图床（Google/Yandex 本地图搜需要；关闭后这两引擎不可用本地图搜） |
+
+### Cloudflare 过盾 `flaresolverr`（全局，所有引擎通用）
+
+| 配置项 | 类型 | 默认 | 说明 |
+|--------|------|------|------|
+| `enabled` | bool | `false` | 是否启用 FlareSolverr 过盾（需要同时填 `url`） |
+| `url` | string | `""` | FlareSolverr 服务地址，如 `http://127.0.0.1:8191` |
+| `timeout` | int | `90` | 过盾超时（秒），过盾通常要 10~60 秒 |
+| `proxy` | string | `""` | FlareSolverr 访问目标站点时用的代理（可选）；Cookie 与出口 IP 绑定，需与搜索请求同出口 |
+
+> 任何被 Cloudflare 人机验证（`Just a moment...`）拦截的引擎都可以复用它：引擎检测到挑战页后，调用这里配置的 FlareSolverr 取 `cf_clearance`，再重试一次；结果按目标站点缓存 10 分钟。目前 **Soutubot** 已接入，以后新增引擎直接调用同一客户端即可，不用重复配置。
 
 ### AI 生成检测 `aiornot`
 
@@ -158,13 +170,13 @@ AI or Not 免费额度只有 20 张且**不按月重置**，额度用完后会�
 | 配置项 | 类型 | 默认 | 说明 |
 |--------|------|------|------|
 | `trigger_keywords` | list | `["以图搜图", "image search"]` | 触发搜索的关键词列表 |
-| `engine_keywords` | object | `a/s/e/g/y/ai` | 各引擎的自定义别名（animetrace=`a`、saucenao=`s`、ehentai=`e`、google=`g`、yandex=`y`、ai=`ai`） |
+| `engine_keywords` | object | `a/s/e/n/g/y/ai` | 各引擎的自定义别名（animetrace=`a`、saucenao=`s`、ehentai=`e`、soutubot=`n`、google=`g`、yandex=`y`、ai=`ai`） |
 
 ### 引擎启用 `available_apis`
 
 | 配置项 | 类型 | 默认 | 说明 |
 |--------|------|------|------|
-| `animetrace` / `ehentai` / `google` / `yandex` / `saucenao` | bool | `true` | 各引擎启停开关 |
+| `animetrace` / `ehentai` / `soutubot` / `google` / `yandex` / `saucenao` | bool | `true` | 各引擎启停开关 |
 | `ai` | bool | `true` | 「AI 检测」引擎开关（只检测、不反搜；未配置 AI or Not API Key 时不显示） |
 
 ### 引擎默认参数 `default_params`
@@ -175,6 +187,11 @@ AI or Not 免费额度只有 20 张且**不按月重置**，额度用完后会�
 | `animetrace.is_multi` / `ai_detect` | 多角色搜索 / AI 检测开关 |
 | `ehentai.is_ex` / `covers` / `similar` / `exp` | ExHentai 开关、封面/相似/实验模式 |
 | `ehentai.cookies` | **E-Hentai Cookie**（ExHentai 必需，获取方法见常见问题 Q5） |
+| `ehentai.blur_image` / `blur_radius` | 结果图**模糊化**（过审）：卡片的缩略图与文本模式的配图都会高斯模糊；`blur_radius=0` 自动按尺寸计算（见 Q7） |
+| `soutubot.factor` | 搜索模式：`1.2` 常规（推荐）/ `1.4` 严格（更精确但更容易没结果） |
+| `soutubot.max_results` | 最多展示多少条 nhentai 图源结果（卡片最多 5 条） |
+| `soutubot.cookies` / `user_agent` | Cloudflare 过盾用的 `cf_clearance` 等 Cookie 与对应 UA（见常见问题 Q6） |
+| `soutubot.blur_image` / `blur_radius` | 结果图**模糊化**（过审）：含义同 `ehentai.blur_image` |
 | `google.serpapi_key` / `zenserp_key` | SerpAPI（推荐）/ Zenserp（备用）Key |
 | `google.hl` / `country` / `max_results` | 语言 / 地区 / 最大结果数 |
 | `saucenao.api_key` / `minsim` / `numres` | API Key / 最低相似度 / 结果数 |
@@ -205,17 +222,19 @@ AI or Not 免费额度只有 20 张且**不按月重置**，额度用完后会�
     "timeout": 60
   },
   "ai_detect_mode": "fallback",
+  "flaresolverr": { "enabled": false, "url": "", "timeout": 90, "proxy": "" },
   "timeout_settings": {
     "search_params_timeout": 30
   },
   "keyword": {
     "trigger_keywords": ["以图搜图", "image search"],
-    "engine_keywords": { "animetrace": "a", "ehentai": "e", "google": "g", "yandex": "y", "saucenao": "s", "ai": "ai" }
+    "engine_keywords": { "animetrace": "a", "ehentai": "e", "soutubot": "n", "google": "g", "yandex": "y", "saucenao": "s", "ai": "ai" }
   },
-  "available_apis": { "animetrace": true, "ehentai": true, "google": true, "yandex": true, "saucenao": true, "ai": true },
+  "available_apis": { "animetrace": true, "ehentai": true, "soutubot": true, "google": true, "yandex": true, "saucenao": true, "ai": true },
   "default_params": {
     "animetrace": { "model": "full_game_model_kira", "is_multi": false, "ai_detect": false },
-    "ehentai": { "is_ex": false, "covers": false, "similar": true, "exp": false, "cookies": "" },
+    "ehentai": { "is_ex": false, "covers": false, "similar": true, "exp": false, "cookies": "", "blur_image": false, "blur_radius": 0 },
+    "soutubot": { "factor": "1.2", "max_results": 10, "cookies": "", "user_agent": "", "blur_image": false, "blur_radius": 0 },
     "google": { "serpapi_key": "", "zenserp_key": "", "hl": "zh-CN", "country": "HK", "max_results": 10 },
     "saucenao": { "api_key": "", "hide": 3, "numres": 5, "minsim": 30, "output_type": 2 },
     "yandex": { "max_results": 10, "use_ru_fallback": true, "cookies": "" }
@@ -307,6 +326,30 @@ yandexuid=1587138991653; ymex=1986384493.yrts.159; Session_id=3:163...:0
 把整行粘贴到插件配置 `default_params.yandex.cookies` / `default_params.ehentai.cookies` 即可。
 
 > **提示**：Yandex 反爬严格，不填 Cookie 可能触发验证码导致搜索无结果；E-Hentai 搜索 ExHentai 内容必须填 Cookie（含 `ipb_member_id`、`ipb_pass_hash`、`igneous` 三个关键字段）。从插件实际请求的域名（yandex.com）获取最稳妥。
+
+### Q6：Soutubot 提示「Just a moment...」/ HTTP 403 怎么办？
+
+这是 **Cloudflare 人机验证**：Soutubot 只对部分服务器 IP 弹出验证，浏览器能打开不代表服务器能直接请求。三种解决方式（任选其一）：
+
+| 方式 | 做法 | 适用 |
+|------|------|------|
+| **换出口 IP** | 在 `proxies` 填代理（如 `http://127.0.0.1:7890`），让请求从没被拦的 IP 出去 | 最简单，多数情况有效 |
+| **手动 Cookie** | 在能正常打开 https://soutubot.moe 的浏览器里通过验证 → F12 → Network → 刷新 → 点 `api/search` 请求 → 复制请求头 `Cookie:` 整行 → 填到 `default_params.soutubot.cookies`；同时把该浏览器 UA 填到 `default_params.soutubot.user_agent` | 服务器 IP 固定、想长期用 |
+| **FlareSolverr 自动过盾** | 服务器上运行 [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr)（`docker run -d --name flaresolverr -p 8191:8191 flaresolverr/flaresolverr:latest`），在**顶层 `flaresolverr`** 配置里开启并填 `http://127.0.0.1:8191` | 一劳永逸，**所有引擎通用**，过盾后 10 分钟内复用 Cookie |
+
+> `cf_clearance` 与**出口 IP + User-Agent** 绑定：Cookie 方案要求插件请求的 IP/UA 与你复制 Cookie 的浏览器一致（所以才有 `user_agent` 配置）；FlareSolverr 方案由它在同一台服务器上取 Cookie，天然匹配。
+>
+> 旧版把 FlareSolverr 配在 `default_params.soutubot.flaresolverr`，现在仍会自动兼容（会打一条提示日志），建议迁移到顶层 `flaresolverr.url`。
+>
+> 若日志里出现 `[Soutubot] 触发 Cloudflare 人机验证` 后仍是 403，说明过盾失败（FlareSolverr 没启动/超时/也被拦），日志会给出具体原因。
+
+### Q7：E-Hentai / Soutubot 的结果太露骨，怕被平台拦怎么办？
+
+在 `default_params.ehentai`（或 `default_params.soutubot`）里把 `blur_image` 设为 `true` 即可：结果卡片里的缩略图、以及纯文本模式下每条结果附带的配图，都会先做高斯模糊再发送。
+
+- `blur_radius` 默认 `0` = 自动：按图片短边的 1/8 计算，并限制在 12~40px，通常已经糊到看不清细节；
+- 想更糊就填 `20`~`40`（数值越大越模糊），觉得太糊可填 `8`~`12`；
+- **你发送的查询图不会被模糊**，也不影响搜索本身，只影响结果展示。
 
 ## 更新日志
 

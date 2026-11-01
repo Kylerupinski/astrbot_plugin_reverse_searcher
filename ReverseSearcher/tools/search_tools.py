@@ -198,6 +198,7 @@ class ReverseSearchTool(_BaseSearchTool):
 - 想了解角色/人物 → animetrace（动漫角色识别最强，返回作品名+角色名）
 - 想找出处/来源/画师 → saucenao（综合出处搜索，返回作者+链接）
 - 想搜同人本/R18内容 → ehentai
+- 想找 nhentai 图源（本子/6 位代码） → soutubot
 - 想找相似图片 → yandex
 - 想找原图/综合搜索 → google
 - 想知道图片是不是 AI 生成 → ai（只做 AI 生成检测，不做反向搜索）
@@ -242,6 +243,7 @@ class ReverseSearchWithEngineTool(_BaseSearchTool):
                         "animetrace",
                         "saucenao",
                         "ehentai",
+                        "soutubot",
                         "google",
                         "yandex",
                         "ai",

@@ -58,6 +58,14 @@ ENGINE_REGISTRY: dict[str, EngineDef] = {
         anime_focused=True,
         color=(220, 55, 75),  # #DC374B 绯红
     ),
+    "soutubot": EngineDef(
+        name="soutubot",
+        label="Soutubot",
+        desc="nhentai 图源检索",
+        url="https://soutubot.moe/",
+        anime_focused=True,
+        color=(233, 69, 96),  # #E94560 nhentai 粉红
+    ),
     "google": EngineDef(
         name="google",
         label="Google 图片",
@@ -140,6 +148,13 @@ INTENT_KEYWORD_WEIGHTS: dict[str, dict[str, int]] = {
         "单行本": 6,
         "漫画": 5,
         "cg": 5,
+    },
+    "soutubot": {
+        "nhentai": 12,
+        "nhentai图源": 12,
+        "nh图源": 10,
+        "本子图源": 10,
+        "6位数": 8,
     },
     "yandex": {
         "相似图": 10,
@@ -225,11 +240,19 @@ def inject_request_classes():
     """将 api_request 模块的请求类注入到 ENGINE_REGISTRY
     延迟导入以避免循环依赖
     """
-    from .utils.api_request import AnimeTrace, EHentai, GoogleLens, SauceNAO, Yandex
+    from .utils.api_request import (
+        AnimeTrace,
+        EHentai,
+        GoogleLens,
+        SauceNAO,
+        Soutubot,
+        Yandex,
+    )
 
     ENGINE_REGISTRY["animetrace"].req_class = AnimeTrace
     ENGINE_REGISTRY["yandex"].req_class = Yandex
     ENGINE_REGISTRY["ehentai"].req_class = EHentai
     ENGINE_REGISTRY["google"].req_class = GoogleLens
     ENGINE_REGISTRY["saucenao"].req_class = SauceNAO
+    ENGINE_REGISTRY["soutubot"].req_class = Soutubot
     # "ai" 不做反向搜索（没有请求类），由 model 直接调用 AI or Not 检测接口

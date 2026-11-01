@@ -60,6 +60,26 @@
       "description": "AI 检测方式",
       "hint": "fallback：优先 AI or Not，失败（额度用完/报错/超时）才用 Illuminarty；both：两个通道同时检测，结果分别展示（两者判断可能相反，可对比参考）"
     },
+    "flaresolverr": {
+      "description": "Cloudflare 过盾（FlareSolverr）",
+      "hint": "被 Cloudflare 人机验证（Just a moment...）拦截时，用 FlareSolverr 自动获取 cf_clearance 后重试。配置一次即可被所有引擎复用（目前 Soutubot 会用到，以后新增引擎也自动继承）",
+      "enabled": {
+        "description": "启用 FlareSolverr 过盾",
+        "hint": "需要同时填写下方服务地址；关闭后仍可手动填各引擎的 cookies"
+      },
+      "url": {
+        "description": "FlareSolverr 地址",
+        "hint": "如 http://127.0.0.1:8191（自行运行：docker run -d --name flaresolverr -p 8191:8191 flaresolverr/flaresolverr:latest）"
+      },
+      "timeout": {
+        "description": "过盾超时（秒）",
+        "hint": "过盾可能需要 10~60 秒，建议 90"
+      },
+      "proxy": {
+        "description": "过盾使用的代理（可选）",
+        "hint": "FlareSolverr 访问目标站点时使用的代理，如 http://127.0.0.1:7890；留空直连。代理出口 IP 与 Cookie 绑定，过盾后搜索请求也应走同一出口"
+      }
+    },
     "timeout_settings": {
       "description": "超时配置",
       "search_params_timeout": {
@@ -94,6 +114,9 @@
         },
         "ai": {
           "description": "AI 检测"
+        },
+        "soutubot": {
+          "description": "Soutubot（nhentai 图源）"
         }
       }
     },
@@ -117,6 +140,10 @@
       "ai": {
         "description": "AI 检测（需配置 AI or Not API Key）",
         "hint": "只检测图片是否为 AI 生成，不做反向搜索；未填写 API Key 时该引擎不会出现"
+      },
+      "soutubot": {
+        "description": "Soutubot（nhentai 图源）",
+        "hint": "通过 soutubot.moe 查找 nhentai 图源；站点有排队限流，偶尔会提示稍后重试"
       }
     },
     "default_params": {
@@ -154,6 +181,14 @@
         "cookies": {
           "description": "E-Hentai Cookie",
           "hint": "获取：登录 e-hentai.org（ExHentai 需 exhentai.org）后 F12 → Console 标签 → 输入 document.cookie 回车 → 复制输出的整行（含 ipb_member_id/ipb_pass_hash/igneous）。仅搜 E-Hentai 可留空，搜 ExHentai 必需"
+        },
+        "blur_image": {
+          "description": "结果图片模糊化（过审）",
+          "hint": "开启后，E-Hentai 结果里的缩略图/配图会被高斯模糊，用于规避平台对 R18 图片的审核；不影响你发送的查询图"
+        },
+        "blur_radius": {
+          "description": "模糊强度",
+          "hint": "0 = 自动（按图片尺寸，通常已足够糊）；也可填 10~40 手动指定，越大越糊"
         }
       },
       "google": {
@@ -210,6 +245,33 @@
         "cookies": {
           "description": "Yandex Cookie",
           "hint": "获取：登录 yandex.com/images 后 F12 → Console 标签 → 输入 document.cookie 回车复制（拿不到 HttpOnly 字段时改用：F12 → Network 标签（过滤框保持空白！）→ 刷新 → 点第一条请求 → Headers → 请求头 Cookie 行整行复制）。留空可能触发验证码导致无结果"
+        }
+      },
+      "soutubot": {
+        "description": "Soutubot（nhentai 图源）",
+        "factor": {
+          "description": "搜索模式",
+          "hint": "1.2 常规（推荐）/ 1.4 严格：更精确但更容易没有结果"
+        },
+        "max_results": {
+          "description": "最大结果数",
+          "hint": "最多展示多少条 nhentai 图源结果（卡片最多 5 条）"
+        },
+        "cookies": {
+          "description": "Soutubot Cookie（可选，过 Cloudflare）",
+          "hint": "部分服务器 IP 会被 Cloudflare 人机验证拦截（Just a moment...）。在能正常访问的浏览器里通过验证后，复制 cf_clearance=...; __cf_bm=... 填到这里；要求出口 IP 与 UA 一致"
+        },
+        "user_agent": {
+          "description": "Soutubot User-Agent（可选）",
+          "hint": "与上面 Cookie 对应的浏览器 UA；留空使用内置 Chrome 126 UA。cf_clearance 与 UA 绑定，UA 不一致会重新触发验证"
+        },
+        "blur_image": {
+          "description": "结果图片模糊化（过审）",
+          "hint": "开启后，Soutubot 结果里的缩略图/配图会被高斯模糊，用于规避平台对 R18 图片的审核；不影响你发送的查询图"
+        },
+        "blur_radius": {
+          "description": "模糊强度",
+          "hint": "0 = 自动（按图片尺寸，通常已足够糊）；也可填 10~40 手动指定，越大越糊"
         }
       }
     }

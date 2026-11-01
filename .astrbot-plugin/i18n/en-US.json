@@ -60,6 +60,26 @@
       "description": "AI detection mode",
       "hint": "fallback: prefer AI or Not and use Illuminarty only when it fails (quota, error, timeout); both: run both channels at the same time and show both results (they may disagree, useful for comparison)"
     },
+    "flaresolverr": {
+      "description": "Cloudflare challenge solver (FlareSolverr)",
+      "hint": "When blocked by the Cloudflare challenge (Just a moment...), FlareSolverr is used to obtain cf_clearance automatically. Configure once and every engine can reuse it (Soutubot uses it today; future engines inherit it)",
+      "enabled": {
+        "description": "Enable FlareSolverr",
+        "hint": "The service URL below is required; when disabled you can still fill per-engine cookies"
+      },
+      "url": {
+        "description": "FlareSolverr URL",
+        "hint": "For example http://127.0.0.1:8191 (run it yourself: docker run -d --name flaresolverr -p 8191:8191 flaresolverr/flaresolverr:latest)"
+      },
+      "timeout": {
+        "description": "Solving timeout (seconds)",
+        "hint": "Solving may take 10-60 seconds; 90 is recommended"
+      },
+      "proxy": {
+        "description": "Proxy for solving (optional)",
+        "hint": "Proxy FlareSolverr uses to reach the target site, e.g. http://127.0.0.1:7890; empty means direct. The clearance cookie is bound to the egress IP, so search requests should use the same egress"
+      }
+    },
     "timeout_settings": {
       "description": "Timeout settings",
       "search_params_timeout": {
@@ -94,6 +114,9 @@
         },
         "ai": {
           "description": "AI detection"
+        },
+        "soutubot": {
+          "description": "Soutubot (nhentai source)"
         }
       }
     },
@@ -117,6 +140,10 @@
       "ai": {
         "description": "AI detection (needs an AI or Not API key)",
         "hint": "Detects whether an image is AI-generated without reverse search; hidden until an API key is configured"
+      },
+      "soutubot": {
+        "description": "Soutubot (nhentai source)",
+        "hint": "Finds the nhentai source via soutubot.moe; the site queues requests and may ask to retry later"
       }
     },
     "default_params": {
@@ -154,6 +181,14 @@
         "cookies": {
           "description": "E-Hentai Cookie",
           "hint": "How to get it: log in to e-hentai.org (exhentai.org for ExHentai), press F12 → Console tab → type document.cookie and press Enter → copy the whole output line (including ipb_member_id/ipb_pass_hash/igneous). Can be left blank if you only search E-Hentai; required for ExHentai"
+        },
+        "blur_image": {
+          "description": "Blur result images (moderation-safe)",
+          "hint": "When enabled, E-Hentai result thumbnails/images are gaussian-blurred to avoid R18 content moderation; your query image is not affected"
+        },
+        "blur_radius": {
+          "description": "Blur strength",
+          "hint": "0 = automatic (based on image size, usually strong enough); or set 10-40 manually, larger is blurrier"
         }
       },
       "google": {
@@ -210,6 +245,33 @@
         "cookies": {
           "description": "Yandex Cookie",
           "hint": "How to get it: log in to yandex.com/images, press F12 → Console tab → type document.cookie and press Enter to copy (if HttpOnly fields are missing, use: F12 → Network tab (keep the filter box empty!) → refresh → click the first request → Headers → copy the entire Cookie request-header line). Leaving it blank may trigger a CAPTCHA and produce no results"
+        }
+      },
+      "soutubot": {
+        "description": "Soutubot (nhentai source)",
+        "factor": {
+          "description": "Search mode",
+          "hint": "1.2 regular (recommended) / 1.4 strict: more precise but more likely to return nothing"
+        },
+        "max_results": {
+          "description": "Maximum results",
+          "hint": "How many nhentai results to show (the card shows at most 5)"
+        },
+        "cookies": {
+          "description": "Soutubot cookies (optional, for Cloudflare)",
+          "hint": "Some server IPs are blocked by the Cloudflare challenge (Just a moment...). After passing it in a normal browser, copy cf_clearance=...; __cf_bm=... here; the egress IP and User-Agent must match"
+        },
+        "user_agent": {
+          "description": "Soutubot User-Agent (optional)",
+          "hint": "The browser UA that matches the cookies above; leave empty to use the built-in Chrome 126 UA. cf_clearance is bound to the UA and mismatches trigger a new challenge"
+        },
+        "blur_image": {
+          "description": "Blur result images (moderation-safe)",
+          "hint": "When enabled, Soutubot result thumbnails/images are gaussian-blurred to avoid R18 content moderation; your query image is not affected"
+        },
+        "blur_radius": {
+          "description": "Blur strength",
+          "hint": "0 = automatic (based on image size, usually strong enough); or set 10-40 manually, larger is blurrier"
         }
       }
     }

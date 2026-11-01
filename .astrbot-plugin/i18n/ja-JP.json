@@ -60,6 +60,26 @@
       "description": "AI 検出方式",
       "hint": "fallback：AI or Not を優先し、失敗（上限/エラー/タイムアウト）時のみ Illuminarty を使用／both：2 つのチャネルを同時に実行し、両方の結果を並べて表示（判定が食い違う場合もあります）"
     },
+    "flaresolverr": {
+      "description": "Cloudflare 認証（FlareSolverr）",
+      "hint": "Cloudflare の認証（Just a moment...）で遮断された場合、FlareSolverr で cf_clearance を自動取得して再試行します。一度設定すれば全エンジンで再利用できます（現在は Soutubot が使用、今後追加するエンジンも自動的に継承）",
+      "enabled": {
+        "description": "FlareSolverr を有効化",
+        "hint": "下記のサービスアドレスが必要です。無効でも各エンジンの cookies を手動で設定できます"
+      },
+      "url": {
+        "description": "FlareSolverr アドレス",
+        "hint": "例：http://127.0.0.1:8191（別途起動：docker run -d --name flaresolverr -p 8191:8191 flaresolverr/flaresolverr:latest）"
+      },
+      "timeout": {
+        "description": "認証タイムアウト（秒）",
+        "hint": "認証には 10〜60 秒かかることがあります。90 を推奨"
+      },
+      "proxy": {
+        "description": "認証用プロキシ（任意）",
+        "hint": "FlareSolverr が対象サイトへアクセスする際のプロキシ（例：http://127.0.0.1:7890）。空欄なら直接接続。cf_clearance は出口 IP に紐づくため、検索リクエストも同じ出口にする必要があります"
+      }
+    },
     "timeout_settings": {
       "description": "タイムアウト設定",
       "search_params_timeout": {
@@ -94,6 +114,9 @@
         },
         "ai": {
           "description": "AI 検出"
+        },
+        "soutubot": {
+          "description": "Soutubot（nhentai 図源）"
         }
       }
     },
@@ -117,6 +140,10 @@
       "ai": {
         "description": "AI 検出（AI or Not API キーが必要）",
         "hint": "画像が AI 生成かどうかだけを判定し、逆検索は行いません。API キー未設定時は表示されません"
+      },
+      "soutubot": {
+        "description": "Soutubot（nhentai 図源）",
+        "hint": "soutubot.moe で nhentai の図源を検索します。サイト側の待ち行列により、後で再試行するよう促される場合があります"
       }
     },
     "default_params": {
@@ -154,6 +181,14 @@
         "cookies": {
           "description": "E-Hentai Cookie",
           "hint": "取得方法：e-hentai.org（ExHentai の場合は exhentai.org）にログインし、F12 → Console タブ → document.cookie と入力して Enter → 出力された行全体（ipb_member_id/ipb_pass_hash/igneous を含む）をコピーします。E-Hentai のみの検索なら空欄で構いませんが、ExHentai の検索には必須です"
+        },
+        "blur_image": {
+          "description": "結果画像をぼかす（審査対策）",
+          "hint": "有効にすると、E-Hentai の結果サムネイル/画像にガウスぼかしをかけます（R18 画像の審査対策）。検索に使った画像には影響しません"
+        },
+        "blur_radius": {
+          "description": "ぼかしの強さ",
+          "hint": "0 = 自動（画像サイズに応じて計算、通常これで十分）。10〜40 を手動指定すると強いほどぼやけます"
         }
       },
       "google": {
@@ -210,6 +245,33 @@
         "cookies": {
           "description": "Yandex Cookie",
           "hint": "取得方法：yandex.com/images にログインし、F12 → Console タブ → document.cookie と入力して Enter でコピーします（HttpOnly フィールドが取得できない場合は、F12 → Network タブ（フィルタ欄は空のまま！）→ 更新 → 最初のリクエストをクリック → Headers → リクエストヘッダーの Cookie 行をまるごとコピー）。空欄のままだと CAPTCHA が発生して結果が得られない場合があります"
+        }
+      },
+      "soutubot": {
+        "description": "Soutubot（nhentai 図源）",
+        "factor": {
+          "description": "検索モード",
+          "hint": "1.2 通常（推奨）/ 1.4 厳格：より正確ですが結果が出にくくなります"
+        },
+        "max_results": {
+          "description": "最大結果数",
+          "hint": "表示する nhentai 結果の最大数（カードは最大 5 件）"
+        },
+        "cookies": {
+          "description": "Soutubot Cookie（任意、Cloudflare 対策）",
+          "hint": "一部のサーバー IP は Cloudflare の認証（Just a moment...）で遮断されます。通常のブラウザで認証を通した後、cf_clearance=...; __cf_bm=... をここに貼り付けてください（出口 IP と UA の一致が必要）"
+        },
+        "user_agent": {
+          "description": "Soutubot User-Agent（任意）",
+          "hint": "上記 Cookie に対応するブラウザ UA。空欄なら内蔵の Chrome 126 UA を使用。cf_clearance は UA に紐づくため、不一致だと再認証になります"
+        },
+        "blur_image": {
+          "description": "結果画像をぼかす（審査対策）",
+          "hint": "有効にすると、Soutubot の結果サムネイル/画像にガウスぼかしをかけます（R18 画像の審査対策）。検索に使った画像には影響しません"
+        },
+        "blur_radius": {
+          "description": "ぼかしの強さ",
+          "hint": "0 = 自動（画像サイズに応じて計算、通常これで十分）。10〜40 を手動指定すると強いほどぼやけます"
         }
       }
     }

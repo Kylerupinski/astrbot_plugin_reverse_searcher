@@ -18,7 +18,8 @@ from PIL import Image
 from .ReverseSearcher.engine_intro_pil import create_engine_intro_image
 from .ReverseSearcher.engine_registry import ALL_ENGINES, ENGINE_REGISTRY
 from .ReverseSearcher.message_extract import get_img_urls, get_message_text
-from .ReverseSearcher.model import BaseSearchModel
+from .ReverseSearcher.model import BaseSearchModel, collect_blur_radii
+from .ReverseSearcher.utils.cloudflare import FlareSolverrClient
 from .ReverseSearcher.utils.forward import (
     build_forward_nodes,
     supports_merge_forward,
@@ -149,6 +150,35 @@ class ReverseSearcherPlugin(Star):
             if keyword and keyword.strip():
                 self.engine_keywords[keyword.strip().lower()] = engine
         default_params = config.get("default_params", {})
+
+        # ── 全局 Cloudflare 过盾（FlareSolverr，任意引擎通用）──────────
+        cf_config = config.get("flaresolverr", {}) or {}
+        cf_url = str(cf_config.get("url", "") or "").strip()
+        cf_enabled = bool(cf_config.get("enabled", False))
+        try:
+            cf_timeout = float(cf_config.get("timeout", 90) or 90)
+        except (TypeError, ValueError):
+            cf_timeout = 90.0
+        cf_proxy = str(cf_config.get("proxy", "") or "").strip()
+        # 兼容旧配置：曾把 FlareSolverr 配在 default_params.soutubot 下
+        legacy_cf = default_params.get("soutubot") or {}
+        if not cf_url and legacy_cf.get("flaresolverr"):
+            cf_url = str(legacy_cf.get("flaresolverr") or "").strip()
+            cf_enabled = bool(cf_url)
+            try:
+                cf_timeout = float(legacy_cf.get("flaresolverr_timeout") or cf_timeout)
+            except (TypeError, ValueError):
+                pass
+            logger.warning(
+                "[ReverseSearcher] 检测到旧版 default_params.soutubot.flaresolverr 配置，"
+                "已自动兼容；建议迁移到顶层 flaresolverr.url（任何引擎都能用）"
+            )
+        self.cf_solver = FlareSolverrClient(
+            cf_url, timeout=cf_timeout, proxy=cf_proxy, enabled=cf_enabled
+        )
+        if self.cf_solver.enabled:
+            logger.info("[ReverseSearcher] 已启用全局 FlareSolverr 过盾：%s", cf_url)
+
         self.search_model = BaseSearchModel(
             proxies=config.get("proxies", ""),
             timeout=60,
@@ -163,6 +193,9 @@ class ReverseSearcherPlugin(Star):
             illuminarty_enabled=self.illuminarty_enabled,
             illuminarty_timeout=illuminarty_timeout,
             ai_detect_mode=ai_detect_mode,
+            # R18 引擎结果图模糊（过审）：引擎 → 半径，0 表示自动
+            blur_radii=collect_blur_radii(default_params),
+            cf_solver=self.cf_solver,
         )
         # 输出方式：card（渲染结果卡片图片，默认）/ text（纯文本，不使用卡片设计）
         output_mode = str(config.get("output_mode", "card") or "card").strip().lower()
@@ -183,6 +216,11 @@ class ReverseSearcherPlugin(Star):
             logger.info("[ReverseSearcher] LLM 搜图工具注册完成")
         except Exception:
             logger.exception("[ReverseSearcher] 工具注册失败")
+
+    @staticmethod
+    def _collect_blur_radii(default_params: dict | None) -> dict[str, int]:
+        """兼容旧调用：转发到 model 层的 ``collect_blur_radii``"""
+        return collect_blur_radii(default_params)
 
     async def _collect_input_images(self, event: AstrMessageEvent) -> list[io.BytesIO]:
         """收集图片（BytesIO格式），支持直接发送和引用回复"""

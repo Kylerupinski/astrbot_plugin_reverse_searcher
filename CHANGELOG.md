@@ -3,7 +3,37 @@
 > 本文件面向**使用者**，记录插件在**原版（1.1.2）之后**做了哪些改动、会带来什么变化。
 > 原版及更早版本的记录保留在文末「历史版本（原版及以前）」。
 > 更新日期 2026.11.01
-> 当前版本：**1.1.9**
+> 当前版本：**1.2.0**
+
+---
+
+## 1.2.0 — Soutubot（nhentai 图源）+ 结果图模糊 + Cloudflare 过盾
+
+### 新引擎：Soutubot（简称 `n`）
+
+- 专门查 **nhentai** 图源：本子标题、作者、页数 / 语言 / 类型、标签、**直达该页的 nhentai 链接**，以及相似度。
+- 和 E-Hentai 收录不同，两个都开着命中率更高；同一本命中多页只显示一条（保留最高相似度并合并命中页数）。
+- 免 Key 免 Cookie 开箱可用；站点排队限流时会原样提示「当前搜索任务较多，请稍后重试」，不会伪装成「没找到」。
+- 配置：`available_apis.soutubot`、`engine_keywords.soutubot`（默认 `n`）、`default_params.soutubot.factor`（`1.2` 常规 / `1.4` 严格）、`max_results`。
+
+### 结果图模糊（过平台审核）
+
+- E-Hentai / Soutubot 各有一个 **`blur_image`** 开关：开启后，卡片里的缩略图、文本模式每条结果的配图都会先做高斯模糊再发送。
+- **`blur_radius`** 默认 `0` = 自动（按图片短边 1/8，限制在 12~40px，通常已足够糊）；想更糊填 `20`~`40`，想轻一点填 `8`~`12`。
+- **你发送的查询图不会被模糊**，搜索本身也不受影响，只影响结果展示。两个引擎互相独立。
+
+### Cloudflare 过盾（全局 FlareSolverr）
+
+- 新增**顶层 `flaresolverr`** 配置：`enabled`、`url`（如 `http://127.0.0.1:8191`）、`timeout`、`proxy`（可选）。
+- **配一次，所有引擎通用**：遇到 `Just a moment...` 挑战页会自动过盾取 `cf_clearance` 并重试一次，结果按站点缓存 10 分钟。目前 Soutubot 已接入，以后新增引擎直接复用。
+- 也可以用 `proxies` 换出口 IP，或手动填 `default_params.soutubot.cookies` / `user_agent`（`cf_clearance` 与 IP、UA 绑定）。
+- 旧版配在 `default_params.soutubot.flaresolverr` 的仍然兼容（控制台提示迁移），建议改到顶层。
+
+### 出错时更好排查
+
+- Soutubot 失败时控制台输出 **WARNING**，包含 HTTP 状态码、content-type、响应长度、请求 URL、页面标题和内容片段（前 500 字），能区分限流、Cloudflare 拦截和网站改版。
+- 聊天里的报错也会带上状态码与页面标题；空响应单独提示「返回了空响应（可能被限流）」。
+- 请求阶段记录本次的 factor、图片大小和响应概况，方便对照排查。
 
 ---
 

@@ -28,8 +28,17 @@ class BaseSearchReq(Network, ABC, Generic[T]):
         self,
         base_url: str = "",
         network: Network | None = None,
+        cf_solver: Any = None,
         **request_kwargs: Any,
     ):
+        """
+        参数:
+            base_url: 引擎基础地址
+            network: 复用的 Network 实例（传入时不再新建 client）
+            cf_solver: 全局 Cloudflare 过盾客户端（``utils.cloudflare.FlareSolverrClient``），
+                需要过盾的引擎自行调用；未配置时为 ``None``
+            **request_kwargs: 传给 Network 的参数（代理/超时/Cookie 等）
+        """
         if network is not None:
             # 使用外部传入的 Network 实例（复用其 client）
             self._client = network.client
@@ -38,6 +47,7 @@ class BaseSearchReq(Network, ABC, Generic[T]):
             super().__init__(**request_kwargs)
             self._owned_client = True
         self.base_url = base_url
+        self.cf_solver = cf_solver
 
     @abstractmethod
     async def search(
